@@ -112,8 +112,8 @@ def find_corp_code(corp_name: str) -> dict:
 
     return {"corp_code":corp_code, "corp_name":name, "stock_code":stock_code}
 
-if __name__ == "__main__":
-    build_corp_code_db()
-    # 정상적으로 실행됐는지 확인
-    print(find_corp_code("삼성전자"))
+# if __name__ == "__main__":
+#     build_corp_code_db()
+#     # 정상적으로 실행됐는지 확인
+#     print(find_corp_code("삼성전자"))
     

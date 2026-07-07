@@ -2,9 +2,13 @@
 기업명 하나로 DART 공시 데이터와 네이버 뉴스 데이터를 수집하는 파이썬 파일.
 """
 
+import io # 
+import os # 
 import re
 import html
 import json
+import zipfile # 
+import xml.etree.ElementTree as ET # 
 from datetime import datetime, timedelta
 
 from config import (
@@ -18,32 +22,73 @@ from config import (
 from corp_code import find_corp_code
 
 DART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"
+DART_ORIGIN_DOCUMENT_URL = "https://opendart.fss.or.kr/api/document.xml"
 NAVER_NEWS_URL = "https://naverapihub.apigw.ntruss.com/search/v1/news"
 
 
-# 공시정보 가지고 오는 함수
-def fetch_disclosures(corp_code: str, days: int = 90, page_count: int = 10) -> list[dict]:
+# 공시서류 원본 가져오는 함수
+def fetch_origin_disclosures():
+    pass
+
+
+# 공시정보 가지고 오는 함수 (최신 사업보고서 1개, 정기보고서 1개, 주요사항보고서 1개)
+def fetch_disclosures(corp_code: str, days: int = 730, page_count: int = 10) -> list[dict]:
     end = datetime.today()
     bgn = end - timedelta(days=days)
+    results = []
 
     params = {
         "crtfc_key": DART_API_KEY,
         "corp_code": corp_code,
         "bgn_de": bgn.strftime("%Y%m%d"),
         "end_de": end.strftime("%Y%m%d"),
-        "last_reprt_at": "Y",
-        "page_count": page_count
+        "last_reprt_at": "Y", # 최종보고서 검색여부
+        "page_count": page_count, # 최대 100
     }
-    
+
+
+    # 정기공시 정보 가져오기 (최신 사업보고서 1개, 정기보고서 1개)
+    params["pblntf_ty"] = "A"
+
     response = session.get(DART_LIST_URL, params=params, timeout=30)
     response.raise_for_status()
-    data = response.json()
+    data_A = response.json()
     
-    status  = data.get("status")
+    status  = data_A.get("status")
     if status == "013": # 조회된 데이터가 없는 경우
-        return []
-    if status != "000": # 정상이 아닌 경우
-        raise RuntimeError(f"DART 오류 status={status}, message={data.get('message')}")
+        pass
+    elif status != "000": # 정상이 아닌 경우
+        raise RuntimeError(f"DART 오류 status={status}, message={data_A.get('message')}")
+    else:
+        flag1 = flag2 = False # flag1 = 분기 or 반기 보고서, flag2 = 사업보고서
+        for item in data_A.get("list", []):
+            report_name = item.get("report_nm")
+            if (not flag2) and "사업" in report_name:
+                results.append(item)
+                flag2 = True
+            elif (not flag1) and (("분기" in report_name) or ("반기" in report_name)):
+                results.append(item)
+                flag1 = True
+            
+            if flag1 and flag2:
+                break      
+
+
+    # 최신 주요사항보고서 정보 가져오기 (주요사항보고서 1개)
+    params["pblntf_ty"] = "B"
+
+    response = session.get(DART_LIST_URL, params=params, timeout=30)
+    response.raise_for_status()
+    data_B = response.json()
+    
+    status  = data_B.get("status")
+    if status == "013": # 조회된 데이터가 없는 경우
+        pass
+    elif status != "000": # 정상이 아닌 경우
+        raise RuntimeError(f"DART 오류 status={status}, message={data_B.get('message')}")
+    else:
+        results.append(data_B.get("list", [])[0])
+
     
     return [
         {
@@ -52,13 +97,15 @@ def fetch_disclosures(corp_code: str, days: int = 90, page_count: int = 10) -> l
             "rcept_dt": item.get("rcept_dt"),
             "flr_nm": item.get("flr_nm")
         }
-        for item in data.get("list", [])
+        for item in results
     ]
+
 
 # 네이버 응답에 존재하는 태그와 HTML 엔티티 제거 함수
 def clean_text(text: str) -> str:
     text = re.sub(r"</?b>", "", text)
     return html.unescape(text) # &lt;나 &amp;처럼 HTML 엔티티로 변환된 문자열을 < 및 & 같은 원래의 특수문자로 되돌림
+
 
 # 네이버 뉴스 가지고 오는 함수
 def fetch_news(corp_name: str, display: int = 10, sort: str = "date") -> list[dict]:
@@ -118,4 +165,6 @@ def research(corp_name: str) -> dict:
 if __name__ == "__main__":
     result = research("삼성전자")
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    print(f"\n공시 {len(result['disclosures'])}건, 뉴스 {len(result['news'])}건 수집 완료.")
+    # print(f"\n공시 {len(result['disclosures'])}건, 뉴스 {len(result['news'])}건 수집 완료.")
+
+
