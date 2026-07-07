@@ -2,13 +2,9 @@
 기업명 하나로 DART 공시 데이터와 네이버 뉴스 데이터를 수집하는 파이썬 파일.
 """
 
-import io # 
-import os # 
 import re
 import html
 import json
-import zipfile # 
-import xml.etree.ElementTree as ET # 
 from datetime import datetime, timedelta
 
 from config import (
@@ -19,16 +15,12 @@ from config import (
     check_keys
 )
 
+from dart_origin_document import get_disclosure_text
+
 from corp_code import find_corp_code
 
 DART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"
-DART_ORIGIN_DOCUMENT_URL = "https://opendart.fss.or.kr/api/document.xml"
 NAVER_NEWS_URL = "https://naverapihub.apigw.ntruss.com/search/v1/news"
-
-
-# 공시서류 원본 가져오는 함수
-def fetch_origin_disclosures():
-    pass
 
 
 # 공시정보 가지고 오는 함수 (최신 사업보고서 1개, 정기보고서 1개, 주요사항보고서 1개)
