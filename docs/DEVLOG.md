@@ -30,7 +30,7 @@ ComIn-Project/
 1. 사용자가 특정 회사에 대해 조사를 요청
 2. 에이전트가 해당 회사명에 맞는 회사 고유 번호를 corp_code.db에서 검색.
 3. DART API를 통해 해당 회사의 최신 사업보고서 1개, 정기공시 1개, 최신 주요사항보고서 1개를 수집. (이 데이터들은 벡터db에 저장. 다음에 같은 회사 물어보면 그대로 사용할 수 있도록. 물론 최신 보고서들이 업데이트 됐는지는 확인해야함. -> 그럼 최신 보고서가 업데이트 됐으면 기존 거는 삭제하고?)
-4. NAVER SEARCH API를 통해 최신 뉴스 10개 수집해서 제목과 본문 요약 내용 사용. 링크도 출처로 보여주기. (아마 나중에 개수를 줄이고 본문 내용을 크롤링하는 방식으로 바꿀 것 같다)
+4. NAVER SEARCH API를 통해 최신 뉴스 10개 수집해서 제목과 본문 요약 내용 사용. 링크도 출처로 보여주기. (아마 나중에 개수를 줄이고 본문 내용을 크롤링하는 방식으로 바꿀 것 같다. 뉴스 수집은 어떻게? 네이버 뉴스 robots.txt에 비허용이라 되어있긴 한데 권고사항일 뿐 크롤링 해도 불법은 아님. 아니면 기사의 원문 링크 타고 들어가서 거기서 크롤링? 근데 이러면 사이트마다 형식이 다를 수 있음. 아니면 RSS 이용? 링크 타고 들어가서 해당 언론사의 RSS로 수집하기. 근데 이러면 과정이 더 추가된다. 일단 요약본으로 하고 나중에 고민해보자.)
 5. 수집한 내용들을 토대로 짧은 보고서 생성(유료 클로드 API 사용).
 
 \- 생각해 볼 점
@@ -215,7 +215,6 @@ def find_corp_code(corp_name: str) -> dict:
 1. 공시 정보를 가져오는 함수
 2. 네이버 뉴스를 가져오는 함수
 3. 공시 정보와 네이버 뉴스 정보를 합쳐서 반환하는 함수
-4. 공시서류 원본을 가져오는 함수
 
 DART API를 사용해 공시정보를 가져오는 함수를 만들어보자.
 요청 url은 `https://opendart.fss.or.kr/api/list.json`이다.
@@ -357,5 +356,104 @@ GET 메서드를 통해 원본 파일을 zip 파일로 가져올 수 있다. 요
 4. chroma db를 retriver로 사용
 5. 사용자 질의를 임베딩 후 벡터 db에 검색해서 청크 k개를 컨텍스트에 추가.
 
+앞서 작성한 공시정보를 가져오는 fetch_disclosures() 함수를 수정해 2번까지 진행해보자.
+
+``` python
+# 공시정보 가지고 오는 함수 (최신 사업보고서 1개, 정기보고서 1개, 주요사항보고서 1개)
+def fetch_disclosures(corp_code: str, days: int = 730, page_count: int = 10) -> list[dict]:
+    end = datetime.today()
+    bgn = end - timedelta(days=days)
+    results = []
+
+    params = {
+        "crtfc_key": DART_API_KEY,
+        "corp_code": corp_code,
+        "bgn_de": bgn.strftime("%Y%m%d"),
+        "end_de": end.strftime("%Y%m%d"),
+        "last_reprt_at": "Y", # 최종보고서 검색여부
+        "page_count": page_count, # 최대 100
+    }
 
 
+    # 정기공시 정보 가져오기 (최신 사업보고서 1개, 정기보고서 1개)
+    params["pblntf_ty"] = "A"
+
+    response = session.get(DART_LIST_URL, params=params, timeout=30)
+    response.raise_for_status()
+    data_A = response.json()
+    
+    status  = data_A.get("status")
+    if status == "013": # 조회된 데이터가 없는 경우
+        pass
+    elif status != "000": # 정상이 아닌 경우
+        raise RuntimeError(f"DART 오류 status={status}, message={data_A.get('message')}")
+    else:
+        flag1 = flag2 = False # flag1 = 분기 or 반기 보고서, flag2 = 사업보고서
+        for item in data_A.get("list", []):
+            report_name = item.get("report_nm")
+            if (not flag2) and "사업" in report_name:
+                results.append(item)
+                flag2 = True
+            elif (not flag1) and (("분기" in report_name) or ("반기" in report_name)):
+                results.append(item)
+                flag1 = True
+            
+            if flag1 and flag2:
+                break      
+
+
+    # 최신 주요사항보고서 정보 가져오기 (주요사항보고서 1개)
+    params["pblntf_ty"] = "B"
+
+    response = session.get(DART_LIST_URL, params=params, timeout=30)
+    response.raise_for_status()
+    data_B = response.json()
+    
+    status  = data_B.get("status")
+    if status == "013": # 조회된 데이터가 없는 경우
+        pass
+    elif status != "000": # 정상이 아닌 경우
+        raise RuntimeError(f"DART 오류 status={status}, message={data_B.get('message')}")
+    else:
+        results.append(data_B.get("list", [])[0])
+
+    
+    return [
+        {
+            "report_nm": item.get("report_nm"),
+            "rcept_no": item.get("rcept_no"),
+            "rcept_dt": item.get("rcept_dt"),
+            "flr_nm": item.get("flr_nm")
+        }
+        for item in results
+    ]
+```
+
+`pblntf_ty` 라는 요청키에 정기공시를 뜻하는 `A`와 주요사항보고를 뜻하는 `B` 값을 넣어 원하는 공시 정보를 가져오도록 작성했다. 요청값을 list에 넣어서 작성하려 했지만 두 값에서 해야하는 작업이 달라 분리시켜서 코드를 작성했다.
+
+이제 이 접수 번호를 통해 원본 파일이 잘 가지고 와지는지 확인해보자. 원본 파일을 가지고 와서 텍스트로 변환하는 파이썬 코드는 클로드로 작성하고 나는 파싱 결과를 보며 전략만 지시했다.
+DART API를 통해 원본 파일을 zip 파일로 받아서 본문 내용을 문자열로 반환했다. 그런데 이런 보고서 종류들은 표와 같은 형식이 많아서 파싱을 하면 표의 구조를 잃어버리고 단순히 숫자만 남기 때문에 오히려 노이즈를 줄 수 있다. 그래서 표는 빼고 서술형 태그만 남기는 방법을 택했다. 삼성전자의 분기보고서를 예로 들면 표를 빼기 전에는 글자 수가 70만자가 넘었지만 서술형 태그만 파싱하니 약 7만자 정도로 1/10이 됐다. 원본 파일의 텍스트가 잘 가져와지는걸 확인해서 이제 청킹으로 넘어가면 된다. (==표를 제외하긴 했지만 사실 좋지 않은 전략이라고 생각한다. 왜냐하면 보고서에는 대부분 표로 되어있고 표를 봐야만 알 수 있는 내용들이 많은데 이걸 전부 제외한다는건 중요한 내용들을 다 잃어버리는 것과 같기 때문이다. 그래서 현재 3개의 보고서를 가져오는데 정기공시 1개, 주요사항보고서 1개로 줄이고, 대신 표의 내용도 파싱하는 방법을 찾아보면 좋을 것 같다.==)
+그런데 여기서 고민이 생겼다. 이 프로젝트를 기획할 당시에는 모든 회사들의 정기보고서와 분기보고서를 벡터db에 넣어놓으려 했는데 그러기에는 양이 너무 많았다. 단순 계산으로 모든 회사 약 11만개 \* 보고서 2개 \* 문서당 청크 약 200개를 계산해보면 4천만이 넘는다. 모든 청크를 chroma DB에 넣기에는 성능도 안좋아질 것 같아서(==확실한 근거 찾아야됨==) 상장사 약 4000개만 미리 넣어놓을까 고민했다. 이 부분은 아마 전체적인 파이프라인을 구성한 뒤에 사용자가 질의한 뒤 응답시간을 보고 결정할 것 같다. 그래서 지금은 일단 수집하지 않고 사용자가 질의했을 때 해당하는 회사에 대해 그때그때 수집하고 vector db에 넣으려고 계획했다.
+
+### \- 청킹
+
+원본 문서가 잘 가져와지는건 확인했으니 이제 청킹을 할 차례이다. 어떤 방식으로 청킹을 할지 고민해봤는데 데이터로 사용하는 보고서는 계층적인 구조를 띄고 있어서 줄바꿈 같은 구분자를 이용한 청킹 전략을 먼저 구사해보려고 한다. 바닐라 RAG를 진행하는 의의는 직접 한 번 손으로 구현해보자는게 커서 다양한 청킹 전략들은 후에 langchain으로 마이그레이션 한 뒤에 고민할 예정이다.
+
+그럼 어떤 구분자로 먼저 청킹하는게 좋을까? 나중에 사용자 질의가 들어왔을 때 어떤 청크 단위로 리트리버가 검색해와야 되는지 생각해보자. 사용자가 어떤 회사에 대한 '주요 제품', '위험관리', '연구활동' 등을 질의했을 때 해당 내용이 잘 들어가려면 최소 한 문단은 되어야 할 것 같다. 청크의 길이를 정할 때는 임베딩 모델도 같이 확인해야해서 우선 문단 단위로 분할하고, 최대 500자, 오버랩은 50자 정도로 설정하고 진행하려고 한다. 
+
+바닐라 RAG에서는 청킹 함수를 직접 구현해야 한다.
+그럼 우선 문단 단위로 청킹하고 최대 글자수 넘기면 문자 단위로 끊는 방식으로 구현해보자.
+
+``` python
+
+```
+
+### \- 임베딩
+
+
+### \- 벡터 데이터베이스
+
+이제 가져온 접수번호가 이미 vector db에 존재하는지 여부를 확인하고, 존재하지 않는다면 청킹 및 임베딩 후 vector db에 넣어야 한다. vector db는 chroma db를 사용했다. (==chroma db 사용한 이유?==) 
+나중에 사용자의 질의가 들어왔을 때 해당하는 회사에 대한 청크들만 참조해야 하기 때문에 metadata도 잘 구성해서 넣어야 한다.
+
+접수번호가 vector db에 존재하는지 여부를 확인하기 위해서 vector db를 만들고 관리하는 `vector_db.py` 파일을 만들자.
