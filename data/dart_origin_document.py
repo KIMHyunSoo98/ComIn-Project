@@ -1,15 +1,13 @@
 """
 DART 공시원문에서 본문 텍스트 추출.
-해당 파일은 AI로 작성한 코드.
+해당 파일은 AI(클로드 Opus 4.8)로 작성한 코드.
 """
 
 import io
 import os
 import re
-import sys
 import zipfile
 import xml.etree.ElementTree as ET
-from collections import Counter
 
 import requests
 from dotenv import load_dotenv
