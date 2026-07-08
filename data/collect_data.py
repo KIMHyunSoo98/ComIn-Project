@@ -15,9 +15,10 @@ from config import (
     check_keys
 )
 
-from dart_origin_document import get_disclosure_text
-
 from corp_code import find_corp_code
+from dart_origin_document import get_disclosure_text
+from chunking import chunk_text
+
 
 DART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"
 NAVER_NEWS_URL = "https://naverapihub.apigw.ntruss.com/search/v1/news"
@@ -143,14 +144,23 @@ def research(corp_name: str) -> dict:
     
     # 공시정보와 뉴스 가져오기
     disclosures = fetch_disclosures(corp["corp_code"])
-    news = fetch_news(corp_name)
+    # news = fetch_news(corp_name)
+
+    for dis in disclosures:
+        rcept_no = dis.get("rcept_no")
+        doc = get_disclosure_text(rcept_no)
+        chunks = chunk_text(doc)
+        print("len_chunks: ", len(chunks))
+        print(chunks[:5])
+        
+
 
     return {
         "corp_name": corp_name,
         "corp_code": corp["corp_code"],
         "stock_code": corp["stock_code"],
         "disclosures": disclosures,
-        "news": news
+        # "news": news
     }
 
 
