@@ -28,7 +28,7 @@ if __name__ == "__main__":
         # 적재 안 되어있을 떄
         texts = get_disclosure_text(rcept_no) # 원본 공시 파일의 텍스트 추출
         chunks = chunk_text(text=texts, chunk_size=500, overlap=50) # 청킹
-        embeddings = store_chroma_db(collection=collection, chunks=chunks, rcept_no=rcept_no, corp_code=corp_code) # 임베딩 후 저장
+        store_chroma_db(collection=collection, chunks=chunks, rcept_no=rcept_no, corp_code=corp_code) # 임베딩 후 저장
     
     # 검색
     results = search(collection=collection, query=query, corp_code=corp_code, n_results=3)
