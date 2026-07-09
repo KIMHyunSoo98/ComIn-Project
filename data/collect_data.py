@@ -22,12 +22,29 @@ from data.config import (
 )
 
 from data.corp_code import find_corp_code
-from data.dart_origin_document import get_disclosure_text
-from data.chunking import chunk_text
 
 
 DART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"
 NAVER_NEWS_URL = "https://naverapihub.apigw.ntruss.com/search/v1/news"
+
+
+# DART list API에 공시유형을 지정해 요청을 보내고 공시 목록을 반환하는 함수
+def _fetch_disclosure_list(params: dict, pblntf_ty: str) -> list[dict]:
+    """
+    DART list API에 공시유형(pblntf_ty)을 지정해 요청하고 공시 목록을 반환한다.
+    조회된 데이터가 없으면(status 013) 빈 리스트를 반환한다.
+    """
+    response = session.get(DART_LIST_URL, params={**params, "pblntf_ty": pblntf_ty}, timeout=30)
+    response.raise_for_status()
+    data = response.json()
+
+    status = data.get("status")
+    if status == "013": # 조회된 데이터가 없는 경우
+        return []
+    if status != "000": # 정상이 아닌 경우
+        raise RuntimeError(f"DART 오류 status={status}, message={data.get('message')}")
+
+    return data.get("list", [])
 
 
 # 공시정보 가지고 오는 함수 (최신 사업보고서 1개, 정기보고서 1개, 주요사항보고서 1개)
@@ -50,50 +67,25 @@ def fetch_disclosures(corp_code: str, days: int = 730, page_count: int = 10) -> 
         "page_count": page_count, # 최대 100
     }
 
-
     # 정기공시 정보 가져오기 (최신 사업보고서 1개, 정기보고서 1개)
-    params["pblntf_ty"] = "A"
+    flag1 = flag2 = False # flag1 = 분기 or 반기 보고서, flag2 = 사업보고서
+    for item in _fetch_disclosure_list(params, pblntf_ty="A"):
+        report_name = item.get("report_nm")
+        if (not flag2) and "사업" in report_name:
+            results.append(item)
+            flag2 = True
+        elif (not flag1) and (("분기" in report_name) or ("반기" in report_name)):
+            results.append(item)
+            flag1 = True
 
-    response = session.get(DART_LIST_URL, params=params, timeout=30)
-    response.raise_for_status()
-    data_A = response.json()
-    
-    status  = data_A.get("status")
-    if status == "013": # 조회된 데이터가 없는 경우
-        pass
-    elif status != "000": # 정상이 아닌 경우
-        raise RuntimeError(f"DART 오류 status={status}, message={data_A.get('message')}")
-    else:
-        flag1 = flag2 = False # flag1 = 분기 or 반기 보고서, flag2 = 사업보고서
-        for item in data_A.get("list", []):
-            report_name = item.get("report_nm")
-            if (not flag2) and "사업" in report_name:
-                results.append(item)
-                flag2 = True
-            elif (not flag1) and (("분기" in report_name) or ("반기" in report_name)):
-                results.append(item)
-                flag1 = True
-            
-            if flag1 and flag2:
-                break      
+        if flag1 and flag2:
+            break
 
+    # 최신 주요사항보고서 정보 가져오기 (주요사항보고서 1개, 없으면 생략)
+    major = _fetch_disclosure_list(params, pblntf_ty="B")
+    if major:
+        results.append(major[0])
 
-    # 최신 주요사항보고서 정보 가져오기 (주요사항보고서 1개)
-    params["pblntf_ty"] = "B"
-
-    response = session.get(DART_LIST_URL, params=params, timeout=30)
-    response.raise_for_status()
-    data_B = response.json()
-    
-    status  = data_B.get("status")
-    if status == "013": # 조회된 데이터가 없는 경우
-        pass
-    elif status != "000": # 정상이 아닌 경우
-        raise RuntimeError(f"DART 오류 status={status}, message={data_B.get('message')}")
-    else:
-        results.append(data_B.get("list", [])[0])
-
-    
     return [
         {
             "report_nm": item.get("report_nm"),

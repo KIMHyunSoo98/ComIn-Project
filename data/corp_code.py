@@ -47,7 +47,6 @@ def build_corp_code_db():
     with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
         xml_name = zf.namelist()[0]
         with zf.open(xml_name) as f:
-            print("f", f)
             tree = ET.parse(f)
     root = tree.getroot()
 

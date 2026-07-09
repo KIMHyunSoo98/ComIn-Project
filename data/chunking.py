@@ -8,8 +8,6 @@ split_long_paragraph() -> chunk_size를 초과한 문단을 분할해 청크로 
 chunk_text() -> 입력으로 들어온 공시 원본 텍스트를 청크로 나누는 함수
 """
 
-from data.dart_origin_document import get_disclosure_text
-
 
 def split_long_paragraph(para: str, chunk_size: int, overlap: int):
     """
