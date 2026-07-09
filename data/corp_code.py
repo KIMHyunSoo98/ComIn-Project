@@ -16,7 +16,7 @@ import xml.etree.ElementTree as ET
 import requests
 
 import os
-from config import (
+from data.config import (
     DART_API_KEY,
     CACHE_DIR,
     check_keys
