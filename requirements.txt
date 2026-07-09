@@ -1,3 +1,5 @@
 requests
 requests-cache
 python-dotenv
+chromadb
+sentence-transformers
