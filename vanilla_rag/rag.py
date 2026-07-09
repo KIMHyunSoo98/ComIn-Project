@@ -13,9 +13,18 @@ from data.embedding import get_collection, store_chroma_db, check_disclosure_in_
 
 if __name__ == "__main__":
     
-    query = input("회사명: ")
+    while True:
+        corp_name = input("회사명: ")
+        try:
+            information = research(corp_name)
+            break
+        except ValueError as e:
+            print(e)
+
+
+    question = input("질문: ")
     
-    information = research(query)
+    
     corp_code = information.get("corp_code")
     collection = get_collection()
     for dis in information.get("disclosures", []):
@@ -31,6 +40,6 @@ if __name__ == "__main__":
         store_chroma_db(collection=collection, chunks=chunks, rcept_no=rcept_no, corp_code=corp_code) # 임베딩 후 저장
     
     # 검색
-    results = search(collection=collection, query=query, corp_code=corp_code, n_results=3)
+    results = search(collection=collection, query=question, corp_code=corp_code, n_results=3)
 
     print("결과: \n", results)
