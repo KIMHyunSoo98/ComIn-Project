@@ -2,11 +2,26 @@
 ## ==아직 하나도 다듬지 않고 그냥 생각나는대로 쓰는중==
 
 ## 목차
+### To-do 리스트
+### 0. 프로젝트 구조
+### 1. 개요
+### 2. 환경 설정
+### 3. Vanilla RAG
 
-### [[#0. 프로젝트 구조]]
-### [[#1. 개요]]
-### [[#2. 환경 설정]]
-### [[3. Vanilla RAG]]
+---
+## To-do 리스트
+
+| 해야 할 것                                                                          | 완료 여부 |
+| ------------------------------------------------------------------------------- | ----- |
+| sqlite 대안 있는지 찾아보고 sqlite 사용 이유 작성                                              |       |
+| 회사명을 테이블에 있는 이름과 다르게 입력하면 어떻게 처리할지 생각해보기                                        |       |
+| 공시 원본 파일 텍스트 파싱할 때 표도 같이 파싱할 방법 찾기                                              |       |
+| chroma db에 데이터가 어느정도 들어가면 성능 저하 발생하는지 이유와 근거 찾기                                 |       |
+| 벡터 db로 chroma 사용한 이유와 근거 찾기                                                     |       |
+| 왜 임베딩에 `jhgan/ko-sroberta-multitask` 모델을 썼는지 이유와 근거 찾기                          |       |
+| 문서 임베딩과 질의 임베딩에 사용하는 임베딩 모델이 같아야 하는 이유: 모델이 학습된게 다 다르기 때문인 것 같은데 좀 더 구체적으로 찾아보기 |       |
+| chroma에서 거리 지표를 squared L2에서 cosine으로 바꿔도 상관 없는 이유 찾기                           |       |
+|                                                                                 |       |
 
 ---
 ## 0. 프로젝트 구조
@@ -37,6 +52,7 @@ ComIn-Project/
 - 꼭 보고서만을 만드는 기능이 아니라 다른 기능도 있으면 좋을 것 같다. 예를 들어 앞에서 말한 것처럼 취준생에게는 해당 회사의 최근 공고 내용이나 최신 뉴스들의 본문 내용도 크롤링해서 최근 회사의 동향을 알려주는 기능을 추가하면 좋을 것 같다. 자소서를 쓸 때 회사의 최근 기술 동향 같은 것을 조사하는 것도 필요했기 때문에 유용할 것 같다. (동향 조사 기능도 전체적인 뉴스를 가져오는 기능과 '기술', '채용' 같은 키워드를 함께 사용해서 해당 키워드에 관련된 뉴스를 가져오는 기능을 넣으면 좋을 것 같다 -> 이것들도 벡터디비의 새로운 컬렉션을 만들어서 저장해놓기?)
 - 평가 방식은 어떻게 하면 좋을까? 
 - 근데 기업명을 잘 모르는 경우도 있을테니, 사용자가 특정 분야와 관련된 회사 알려달라 하면 알려주는 기능?
+- 현재는 싱글 턴. 나중에 멀티 턴이 되면 어떻게 기존 컨텍스트 관리?
 
 ---
 ## 2. 환경 설정
@@ -95,6 +111,9 @@ uv run data/collect_data.py
 
 그럼 첫번째로 DART API를 사용해서 데이터를 가져와보자.
 
+### ==추가==
+원래 함수들을 안의 코드까지 다 붙여넣었었는데 길이가 길어지기도 하고 계속 함수가 바뀌다보니 안의 코드까지 다 붙여넣는건 별로라고 생각이 들었다. 그래서 함수의 시그니처와 설명만 첨부해서 어떤 기능을 하는 함수인지 알 수 있게 변경했다.
+
 ### \- 고유번호 매핑 테이블 생성
 
 DART API를 사용해서 특정 회사의 공시 정보를 가져오기 위해서는 회사의 고유번호를 입력해야한다. 그래서 회사명을 입력하면 해당 회사의 고유번호로 매핑해주는 테이블이 필요하다. 매핑된 테이블은 로컬 sqlite 저장소에 저장한다.
@@ -111,27 +130,6 @@ def build_corp_code_db():
     """
     전체 고유번호가 들어있는 zip 파일을 다운받아 파싱 후 sqlite에 저장하는 함수
     """
-    check_keys()
-    
-	# 1. 전체 고유번호가 담긴 zip 다운로드
-	response = requests.get(CORP_CODE_URL, params={"crtfc_key":DART_API_KEY}, timeout=30)
-	
-	# 2. zip 안의 CORPCODE.xml 파싱
-	with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
-		xml_name = zf.namelist()[0]
-		with zf.open(xml_name) as f:
-			tree = ET.parse(f)
-	root = tree.getroot()
-	
-	rows = []
-	    for item in root.iter("list"): # 노드들중 "list" 태그를 가진 노드만 사용
-	      # 고유번호, 정식명칭, 종목코드, 최종변경일자 파싱 후 추가
-	      rows.append(
-	          (item.findtext("corp_code") or "").strip(),
-	          (item.findtext("corp_name") or "").strip(),
-	          (item.findtext("stock_code") or "").strip(),
-	          (item.findtext("modify_date") or "").strip(),
-	      )  
 ```
 
 위 코드를 통해 전체 고유번호 zip을 받아와 고유번호가 들어있는 `CORPCODE.xml`을 파싱한다.
@@ -148,26 +146,6 @@ def build_corp_code_db():
     """
     전체 고유번호가 들어있는 zip 파일을 다운받아 파싱 후 sqlite에 저장하는 함수
     """
-	
-	...
-	
-	conn = sqlite3.connect(DB_PATH)
-	cur = conn.cursor()
-	cur.execute("DROP TABLE IF EXISTS corp") # 이미 corp 테이블이 존재하면 테이블 드랍
-	cur.execute( # 테이블 생성
-		"""
-		CREATE TABLE corp (
-			corp_code TEXT,
-			corp_name TEXT,
-			stock_code TEXT,
-			modify_date TEXT
-		)
-		"""
-	)
-	cur.executemany("INSERT INTO corp VALUES (?, ?, ?, ?)", rows)
-	cur.execute("CREATE INDEX idx_cor_name ON corp(corp_name)") # 회사명으로 검색했을 때 속도를 빠르게 하기 위해 인덱스로 설정
-	conn.commit()
-	conn.close()
 ```
 
 이렇게 `build_corp_code_db()` 함수를 통해 회사명-고유번호 매핑 테이블을 만들었다. 이제 회사명이 들어오면 테이블을 통해 고유번호를 반환해주는 함수를 만들면 된다.
@@ -180,31 +158,8 @@ def find_corp_code(corp_name: str) -> dict:
     """
     회사명으로 corp_code를 조회한다.
     같은 이름이 여러 개 존재할 수 있는데, 이 때는 상장사를 우선 반환한다.
-    (stock_code가 있는 회사)
+    (stock_code가 있는 회사가 상장사)
     """
-    if not os.path.exists(DB_PATH):
-        raise RuntimeError(
-            f"{DB_PATH}가 없습니다. 먼저 매핑 테이블을 만들어주세요."
-        )
-
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    # 회사명과 일치하는 결과가 있으면 가져오기
-    cur.execute(
-        "SELECT corp_code, corp_name, stock_code FROM corp WHERE corp_name = ?",
-        (corp_name, ) # ,을 넣어주지 않으면 튜플이라고 인식하지 못하고 input sequence로 인식돼서 만약 corp_name이 "삼성전자"이면 4개의 값으로 인식된다.
-    )
-    matches = cur.fetchall()
-    conn.close()
-
-    # 결과값이 없을 때
-    if not matches:
-        return None
-
-    listed = [match for match in matches if match[2]] # 종목코드가 있는 회사
-    corp_code, name, stock_code = listed[0] if listed else matches[0] # 종목코드 있으면 상장사, 없으면 그냥 결과값에서 반환
-
-    return {"corp_code":corp_code, "corp_name":name, "stock_code":stock_code}
 ```
 
 이제 매핑 테이블을 만들었으니 API를 통해 데이터를 가져올 수 있다.
@@ -219,39 +174,13 @@ def find_corp_code(corp_name: str) -> dict:
 DART API를 사용해 공시정보를 가져오는 함수를 만들어보자.
 요청 url은 `https://opendart.fss.or.kr/api/list.json`이다.
 ``` python
-# 공시정보 가지고 오는 함수
-def fetch_disclosures(corp_code: str, days: int = 365, page_count: int = 100) -> list[dict]:
-    end = datetime.today()
-    bgn = end - timedelta(days=days)
-
-    params = {
-        "crtfc_key": DART_API_KEY,
-        "corp_code": corp_code,
-        "bgn_de": bgn.strftime("%Y%m%d"),
-        "end_de": end.strftime("%Y%m%d"),
-        "last_reprt_at": "Y",
-        "page_count": page_count
-    }
-    
-    response = session.get(DART_LIST_URL, params=params, timeout=30)
-    response.raise_for_status()
-    data = response.json()
-    
-    status  = data.get("status")
-    if status == "013": # 조회된 데이터가 없는 경우
-        return []
-    if status != "000": # 정상이 아닌 경우
-        raise RuntimeError(f"DART 오류 status={status}, message={data.get('message')}")
-
-    return [
-        {
-            "report_nm": item.get("report_nm"),
-            "rcept_no": item.get("rcept_no"),
-            "rcept_dt": item.get("rcept_dt"),
-            "flr_nm": item.get("flr_nm")
-        }
-        for item in data.get("list", [])
-    ]
+# 공시정보 가지고 오는 함수 (최신 사업보고서 1개, 정기보고서 1개, 주요사항보고서 1개)
+def fetch_disclosures(corp_code: str, days: int = 730, page_count: int = 10) -> list[dict]:
+    """
+    회사 고유 코드를 입력받아 공시 정보를 반환한다.
+    현재는 최신 사업보고서 1개, 정기보고서 1개, 주요사항보고서(존재하면) 1개를 반환한다.
+    하지만 보고서에서 중요한 표에 관련된 내용을 제거하고 수집하기 때문에 후에 개선해야한다.
+    """
 ```
 
 다음은 특정 회사의 최근 네이버 뉴스 기사를 가져오는 함수.
@@ -261,35 +190,18 @@ API를 통해서는 뉴스의 본문 전체 내용을 받지는 못해서 본문
 ``` python
 # 네이버 응답에 존재하는 태그와 HTML 엔티티 제거 함수
 def clean_text(text: str) -> str:
-    text = re.sub(r"</?b>", "", text)
-    return html.unescape(text) # &lt;나 &amp;처럼 HTML 엔티티로 변환된 문자열을 < 및 & 같은 원래의 특수문자로 되돌림
+    """
+    네이버 뉴스 응답에 존재하는 태그를 제거하고, HTML 엔티티로 변환된 문자열을 원래의 특수문자로 되돌린다.
+    """
 
 # 네이버 뉴스 가지고 오는 함수
 def fetch_news(corp_name: str, display: int = 10, sort: str = "date") -> list[dict]:
-    
-    headers = {
-        "X-NCP-APIGW-API-KEY-ID": NAVER_CLIENT_ID,
-        "X-NCP-APIGW-API-KEY": NAVER_CLIENT_SECRET
-    }
-    params = {
-        "query": corp_name,
-        "display": display,
-        "sort": sort
-    }
-    
-    response = session.get(NAVER_NEWS_URL, headers=headers, params=params, timeout=30)
-    response.raise_for_status()
-    data = response.json()
-
-    return [
-        {
-            "title": clean_text(item.get("title")),
-            "description": clean_text(item.get("description")),
-            "link": item.get("link"),
-            "pubDate": item.get("pubDate")
-        }
-        for item in data.get("items", [])
-    ]
+    """
+    회사명을 받아 최신 뉴스 10개를 가져온다.
+    현재는 쿼리를 단순히 회사명으로 사용하고 있어서, 나중에 쿼리를 좀 더 보완해야한다.
+    그리고 API를 통한 응답에는 뉴스의 본문 내용이 전부 나와있지 않고 요약본만 있다. 
+    후에 본문 내용이 필요하면 크롤링을 해서 데이터를 수집해야 한다.
+    """
 ```
 
 이제 이 두 정보를 합쳐서 반환하는 함수를 보자.
@@ -299,26 +211,6 @@ def research(corp_name: str) -> dict:
     """
     회사명을 입력으로 받아 해당 회사의 공시 정보, 뉴스를 반환한다.
     """
-    check_keys()
-
-    corp = find_corp_code(corp_name)
-    if corp is None: # 결과값이 없을 때
-        raise ValueError(
-            f"{corp_name}에 해당하는 고유번호가 없습니다. "
-            f"기업명이 정확한지 확인 해주세요."
-        )
-    
-    # 공시정보와 뉴스 가져오기
-    disclosures = fetch_disclosures(corp["corp_code"])
-    news = fetch_news(corp_name)
-
-    return {
-        "corp_name": corp_name,
-        "corp_code": corp["corp_code"],
-        "stock_code": corp["stock_code"],
-        "disclosures": disclosures,
-        "news": news
-    }
 ```
 
 잘 작동하는지 확인해보자.
@@ -359,80 +251,26 @@ GET 메서드를 통해 원본 파일을 zip 파일로 가져올 수 있다. 요
 앞서 작성한 공시정보를 가져오는 fetch_disclosures() 함수를 수정해 2번까지 진행해보자.
 
 ``` python
+# DART list API에 공시유형을 지정해 요청을 보내고 공시 목록을 반환하는 함수
+def _fetch_disclosure_list(params: dict, pblntf_ty: str) -> list[dict]:
+    """
+    DART list API에 공시유형(pblntf_ty)을 지정해 요청하고 공시 목록을 반환한다.
+    조회된 데이터가 없으면(status 013) 빈 리스트를 반환한다.
+    """
+
 # 공시정보 가지고 오는 함수 (최신 사업보고서 1개, 정기보고서 1개, 주요사항보고서 1개)
 def fetch_disclosures(corp_code: str, days: int = 730, page_count: int = 10) -> list[dict]:
-    end = datetime.today()
-    bgn = end - timedelta(days=days)
-    results = []
-
-    params = {
-        "crtfc_key": DART_API_KEY,
-        "corp_code": corp_code,
-        "bgn_de": bgn.strftime("%Y%m%d"),
-        "end_de": end.strftime("%Y%m%d"),
-        "last_reprt_at": "Y", # 최종보고서 검색여부
-        "page_count": page_count, # 최대 100
-    }
-
-
-    # 정기공시 정보 가져오기 (최신 사업보고서 1개, 정기보고서 1개)
-    params["pblntf_ty"] = "A"
-
-    response = session.get(DART_LIST_URL, params=params, timeout=30)
-    response.raise_for_status()
-    data_A = response.json()
-    
-    status  = data_A.get("status")
-    if status == "013": # 조회된 데이터가 없는 경우
-        pass
-    elif status != "000": # 정상이 아닌 경우
-        raise RuntimeError(f"DART 오류 status={status}, message={data_A.get('message')}")
-    else:
-        flag1 = flag2 = False # flag1 = 분기 or 반기 보고서, flag2 = 사업보고서
-        for item in data_A.get("list", []):
-            report_name = item.get("report_nm")
-            if (not flag2) and "사업" in report_name:
-                results.append(item)
-                flag2 = True
-            elif (not flag1) and (("분기" in report_name) or ("반기" in report_name)):
-                results.append(item)
-                flag1 = True
-            
-            if flag1 and flag2:
-                break      
-
-
-    # 최신 주요사항보고서 정보 가져오기 (주요사항보고서 1개)
-    params["pblntf_ty"] = "B"
-
-    response = session.get(DART_LIST_URL, params=params, timeout=30)
-    response.raise_for_status()
-    data_B = response.json()
-    
-    status  = data_B.get("status")
-    if status == "013": # 조회된 데이터가 없는 경우
-        pass
-    elif status != "000": # 정상이 아닌 경우
-        raise RuntimeError(f"DART 오류 status={status}, message={data_B.get('message')}")
-    else:
-        results.append(data_B.get("list", [])[0])
-
-    
-    return [
-        {
-            "report_nm": item.get("report_nm"),
-            "rcept_no": item.get("rcept_no"),
-            "rcept_dt": item.get("rcept_dt"),
-            "flr_nm": item.get("flr_nm")
-        }
-        for item in results
-    ]
+    """
+    회사 고유 코드를 입력받아 공시 정보를 반환한다.
+    현재는 최신 사업보고서 1개, 정기보고서 1개, 주요사항보고서(존재하면) 1개를 반환한다.
+    하지만 보고서에서 중요한 표에 관련된 내용을 제거하고 수집하기 때문에 후에 개선해야한다.
+    """
 ```
 
-`pblntf_ty` 라는 요청키에 정기공시를 뜻하는 `A`와 주요사항보고를 뜻하는 `B` 값을 넣어 원하는 공시 정보를 가져오도록 작성했다. 요청값을 list에 넣어서 작성하려 했지만 두 값에서 해야하는 작업이 달라 분리시켜서 코드를 작성했다.
+`pblntf_ty` 라는 요청키에 정기공시를 뜻하는 `A`와 주요사항보고를 뜻하는 `B` 값을 넣어 원하는 공시 정보를 가져오도록 하는 함수를 작성했다. 
 
 이제 이 접수 번호를 통해 원본 파일이 잘 가지고 와지는지 확인해보자. 원본 파일을 가지고 와서 텍스트로 변환하는 파이썬 코드는 클로드로 작성하고 나는 파싱 결과를 보며 전략만 지시했다.
-DART API를 통해 원본 파일을 zip 파일로 받아서 본문 내용을 문자열로 반환했다. 그런데 이런 보고서 종류들은 표와 같은 형식이 많아서 파싱을 하면 표의 구조를 잃어버리고 단순히 숫자만 남기 때문에 오히려 노이즈를 줄 수 있다. 그래서 표는 빼고 서술형 태그만 남기는 방법을 택했다. 삼성전자의 분기보고서를 예로 들면 표를 빼기 전에는 글자 수가 70만자가 넘었지만 서술형 태그만 파싱하니 약 7만자 정도로 1/10이 됐다. 원본 파일의 텍스트가 잘 가져와지는걸 확인해서 이제 청킹으로 넘어가면 된다. (==표를 제외하긴 했지만 사실 좋지 않은 전략이라고 생각한다. 왜냐하면 보고서에는 대부분 표로 되어있고 표를 봐야만 알 수 있는 내용들이 많은데 이걸 전부 제외한다는건 중요한 내용들을 다 잃어버리는 것과 같기 때문이다. 그래서 현재 3개의 보고서를 가져오는데 정기공시 1개, 주요사항보고서 1개로 줄이고, 대신 표의 내용도 파싱하는 방법을 찾아보면 좋을 것 같다.==)
+DART API를 통해 원본 파일을 zip 파일로 받아서 본문 내용을 문자열로 반환했다. 그런데 이런 보고서 종류들은 표와 같은 형식이 많아서 파싱을 하면 표의 구조를 잃어버리고 단순히 숫자만 남기 때문에 오히려 노이즈를 줄 수 있다. 그래서 표는 빼고 서술형 태그만 남기는 방법을 택했다. 삼성전자의 분기보고서를 예로 들면 표를 빼기 전에는 글자 수가 70만자가 넘었지만 서술형 태그만 파싱하니 약 7만자 정도로 1/10이 됐다. 원본 파일의 텍스트가 잘 가져와지는걸 확인해서 이제 청킹으로 넘어가면 된다. (==표를 제외하긴 했지만 사실 좋지 않은 전략이라고 생각한다. 왜냐하면 보고서에는 대부분 표로 되어있고 표를 봐야만 알 수 있는 내용들이 많은데 이걸 전부 제외한다는건 중요한 내용들을 다 잃어버리는 것과 같기 때문이다. 그래서 현재 3개의 보고서를 가져오는데 정기공시 1개, 주요사항보고서 1개로 줄이고, 대신 표의 내용도 파싱하는 방법을 찾아보면 좋을 것 같다. 이렇게 하면 청크 양이 훨씬 많아진다.==)
 그런데 여기서 고민이 생겼다. 이 프로젝트를 기획할 당시에는 모든 회사들의 정기보고서와 분기보고서를 벡터db에 넣어놓으려 했는데 그러기에는 양이 너무 많았다. 단순 계산으로 모든 회사 약 11만개 \* 보고서 2개 \* 문서당 청크 약 200개를 계산해보면 4천만이 넘는다. 모든 청크를 chroma DB에 넣기에는 성능도 안좋아질 것 같아서(==확실한 근거 찾아야됨==) 상장사 약 4000개만 미리 넣어놓을까 고민했다. 이 부분은 아마 전체적인 파이프라인을 구성한 뒤에 사용자가 질의한 뒤 응답시간을 보고 결정할 것 같다. 그래서 지금은 일단 수집하지 않고 사용자가 질의했을 때 해당하는 회사에 대해 그때그때 수집하고 vector db에 넣으려고 계획했다.
 
 ### \- 청킹
@@ -445,15 +283,77 @@ DART API를 통해 원본 파일을 zip 파일로 받아서 본문 내용을 문
 그럼 우선 문단 단위로 청킹하고 최대 글자수 넘기면 문자 단위로 끊는 방식으로 구현해보자.
 
 ``` python
+def split_long_paragraph(para: str, chunk_size: int, overlap: int):
+    """
+    목표 크기보다 큰 문단을 문자 단위 슬라이딩 윈도우로 분할.
+    """
 
+def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50):
+    """
+    서술형 텍스트를 청크 리스트로 나눈다. chunk_size, overlap은 글자 수 기준.
+    Vanilla RAG에서는 최적값을 찾기보다 제대로 동작한다는 것에 의의를 둔다.
+    """
 ```
+
+이렇게 두 함수를 만들어서 청킹을 구현했다.
+원본 문서의 텍스트 데이터로 테스트 해 본 결과 청킹이 잘 되는 것을 확인했다.
+
+\- 고민(해결 완료)
+이제 임베딩으로 넘어가면 되는데 그 전에 코드의 구조에 대해 고민인 부분이 있다. vanilla_rag/rag.py 에서 RAG 파이프라인을 구성할건데, 현재는 사용자의 질의가 들어왔을 때 해당 회사의 공시 정보를 가져온다. 그럼 이 공시정보가 이미 들어왔던 것인지 알아야하는데 그 기능을 어디에, 어떤 순서로 만들어야될까? rag.py에서 사용자 질의 -> 회사명 추출 -> research -> (여기가 인덱싱)-> 청킹 -> 임베딩 -> vetorDB 저장 -> search로 사용자 질의와 유사한 문장 수집 -> 수집한 문서를 컨텍스트에 넣고 사용자 질의에 맞는 보고서 작성.
+인덱싱 했는데 이미 존재하면 그냥 search 단계로 가면 된다. 근데 문서가 보통 3개 오는데 그 중 하나만 존재해서 2개는 청킹해야한다고 해보자. 그럼 코드를 어느 단계에 넣으면 될까? 
+``` python
+corp_code = information.get("corp_code")
+collection = get_collection()
+for dis in information.get("disclosures", []):
+	rcept_no = dis.get("rcept_no")
+	
+	# 해당 공시가 이미 적재되어있는지 확인
+	if check_disclosure_in_db(collection=collection, rcept_no=rcept_no) == True:
+		continue
+
+	# 적재 안 되어있을 떄
+	texts = get_disclosure_text(rcept_no) # 원본 공시 파일의 텍스트 추출
+	chunks = chunk_text(text=texts, chunk_size=500, overlap=50) # 청킹
+	store_chroma_db(collection=collection, chunks=chunks, rcept_no=rcept_no, corp_code=corp_code) # 임베딩 후 저장
+
+# 검색
+results = search(collection=collection, query=question, corp_code=corp_code, n_results=
+```
+이런 흐름으로 작성했다.
 
 ### \- 임베딩
 
+임베딩에 사용한 모델은 `jhgan/ko-sroberta-multitask`이다.(==왜 이 모델을 썼는지 이유와 근거 찾기==) 문서를 임베딩 할 때와 사용자의 질의가 들어왔을 때 임베딩하는 모델이 같아야한다. (==왜? 모델이 학습된게 다 다르기 때문인 것 같은데 좀 더 구체적으로 찾아보기==) 
 
 ### \- 벡터 데이터베이스
 
-이제 가져온 접수번호가 이미 vector db에 존재하는지 여부를 확인하고, 존재하지 않는다면 청킹 및 임베딩 후 vector db에 넣어야 한다. vector db는 chroma db를 사용했다. (==chroma db 사용한 이유?==) 
+가져온 접수번호가 이미 vector db에 존재하는지 여부를 확인하고, 존재하지 않는다면 청킹 및 임베딩 후 vector db에 넣어야 한다. vector db는 chroma db를 사용했다. (==chroma db 사용한 이유?==) 
 나중에 사용자의 질의가 들어왔을 때 해당하는 회사에 대한 청크들만 참조해야 하기 때문에 metadata도 잘 구성해서 넣어야 한다.
+embedding.py 파일에서 벡터 스토어 관련 함수들을 작성했다. 저장소는 sqlite다. 설정한 적이 없는데 왜 sqlite인지 찾아보니 chroma의 `PersistentClient`는 내부적으로 sqlite를 기본 저장 백엔드로 사용한다고 한다. chroma는 거리지표를 squared L2(유클리드 거리의 제곱)을 사용하는데 cosine 거리지표로 바꿔줬다.(==바꿔도 상관 없는 이유 찾기==) 현재 청크들과 함께 저장하는 메타 데이터는 회사 코드, 서류 접수번호, 청크 번호다. 회사 코드는 나중에 사용자의 질의에서 해당하는 회사에 대한 청크만 참조하기 위함이다. 반기/정기 보고서 구분 같은 키들은 우선 넣지 않고 나중에 더 생각해보고 필요한 키들을 추가할 예정이다. 그리고 접수번호가 같은 문서가 왔을 때 DB에 존재하는지 체크하는 함수도 작성했다.
 
-접수번호가 vector db에 존재하는지 여부를 확인하기 위해서 vector db를 만들고 관리하는 `vector_db.py` 파일을 만들자.
+``` python
+def get_collection():
+    """
+    로컬 저장소의 컬렉션을 가지고 온다.
+    컬렉션의 저장 방식은 코사인 거리.
+    """
+    
+def store_chroma_db(collection, chunks: list[str], rcept_no: str, corp_code: str):
+    """
+    청크들을 입력으로 받아 메타데이터와 함께 벡터 DB에 저장한다.
+    현재 메타 데이터는 회사코드, 서류접수번호, 청크 번호이다.
+    """
+    
+def check_disclosure_in_db(collection, rcept_no: str) -> bool:
+    """
+    해당 공시보고서가 DB에 존재하는지 확인한다.
+    """
+```
+
+
+### \- 검색
+
+
+
+### \- 보고서 생성
+
