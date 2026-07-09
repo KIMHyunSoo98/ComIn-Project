@@ -81,12 +81,13 @@ def build_corp_code_db():
     conn.close()
     print(f"corp 테이블 구축 완료: 총 {len(rows):,}개 회사")
 
+
 # 회사명을 받아 고유코드, 정식회사명칭, 종목코드를 반환하는 함수
 def find_corp_code(corp_name: str) -> dict:
     """
     회사명으로 corp_code를 조회한다.
     같은 이름이 여러 개 존재할 수 있는데, 이 때는 상장사를 우선 반환한다.
-    (stock_code가 있는 회사)
+    (stock_code가 있는 회사가 상장사)
     """
     if not os.path.exists(DB_PATH):
         raise RuntimeError(
@@ -111,6 +112,7 @@ def find_corp_code(corp_name: str) -> dict:
     corp_code, name, stock_code = listed[0] if listed else matches[0] # 종목코드 있으면 상장사, 없으면 그냥 결과값에서 반환
 
     return {"corp_code":corp_code, "corp_name":name, "stock_code":stock_code}
+
 
 # if __name__ == "__main__":
 #     build_corp_code_db()

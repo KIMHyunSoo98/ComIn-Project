@@ -1,5 +1,11 @@
 """
-기업명 하나로 DART 공시 데이터와 네이버 뉴스 데이터를 수집하는 파이썬 파일.
+기업명으로 DART 공시 데이터와 네이버 뉴스 데이터를 수집하는 파이썬 파일.
+현재는 최신 사업보고서 1개, 정기보고서 1개, 주요사항보고서(존재하면) 1개, 총 3개와 네이버 최신 기사 10개를 수집한다.
+
+fetch_disclosures() -> 공시보고서 3개 가져오는 함수
+fetch_news() -> 최신 뉴스 10개를 가져오는 함수
+clean_text() -> 뉴스 기사의 텍스트에 있는 태그를 제거하는 함수
+research() -> 회사명을 입력받아 고유 코드로 변환하고, 공시보고서와 기사를 수집하는 함수
 """
 
 import re
@@ -26,6 +32,11 @@ NAVER_NEWS_URL = "https://naverapihub.apigw.ntruss.com/search/v1/news"
 
 # 공시정보 가지고 오는 함수 (최신 사업보고서 1개, 정기보고서 1개, 주요사항보고서 1개)
 def fetch_disclosures(corp_code: str, days: int = 730, page_count: int = 10) -> list[dict]:
+    """
+    회사 고유 코드를 입력받아 공시 정보를 반환한다.
+    현재는 최신 사업보고서 1개, 정기보고서 1개, 주요사항보고서(존재하면) 1개를 반환한다.
+    하지만 보고서에서 중요한 표에 관련된 내용을 제거하고 수집하기 때문에 후에 개선해야한다.
+    """
     end = datetime.today()
     bgn = end - timedelta(days=days)
     results = []
@@ -96,13 +107,21 @@ def fetch_disclosures(corp_code: str, days: int = 730, page_count: int = 10) -> 
 
 # 네이버 응답에 존재하는 태그와 HTML 엔티티 제거 함수
 def clean_text(text: str) -> str:
+    """
+    네이버 뉴스 응답에 존재하는 태그를 제거하고, HTML 엔티티로 변환된 문자열을 원래의 특수문자로 되돌린다.
+    """
     text = re.sub(r"</?b>", "", text)
     return html.unescape(text) # &lt;나 &amp;처럼 HTML 엔티티로 변환된 문자열을 < 및 & 같은 원래의 특수문자로 되돌림
 
 
 # 네이버 뉴스 가지고 오는 함수
 def fetch_news(corp_name: str, display: int = 10, sort: str = "date") -> list[dict]:
-    
+    """
+    회사명을 받아 최신 뉴스 10개를 가져온다.
+    현재는 쿼리를 단순히 회사명으로 사용하고 있어서, 나중에 쿼리를 좀 더 보완해야한다.
+    그리고 API를 통한 응답에는 뉴스의 본문 내용이 전부 나와있지 않고 요약본만 있다. 
+    후에 본문 내용이 필요하면 크롤링을 해서 데이터를 수집해야 한다.
+    """
     headers = {
         "X-NCP-APIGW-API-KEY-ID": NAVER_CLIENT_ID,
         "X-NCP-APIGW-API-KEY": NAVER_CLIENT_SECRET
@@ -153,7 +172,6 @@ def research(corp_name: str) -> dict:
         print("len_chunks: ", len(chunks))
         print(chunks[:5])
         
-
 
     return {
         "corp_name": corp_name,

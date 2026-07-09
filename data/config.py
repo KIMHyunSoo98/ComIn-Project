@@ -1,7 +1,7 @@
 """
 API 키 로드, HTTP 캐시 세션 설정
 
-
+check_keys() -> API 키들이 제대로 들어가 있는지 확인하는 함수
 """
 
 import os

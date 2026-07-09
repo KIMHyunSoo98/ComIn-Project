@@ -1,8 +1,11 @@
 """
-공시 원본 텍스트를 청크로 나눈다.
+공시 원본 텍스트를 문단 기준으로 청크로 나눈다.
 
 입력: 공시 서류 원본 파일의 서술형 텍스트
     (문단이 '\n\n'으로 구분되어 있음)
+
+split_long_paragraph() -> chunk_size를 초과한 문단을 분할해 청크로 만드는 함수
+chunk_text() -> 입력으로 들어온 공시 원본 텍스트를 청크로 나누는 함수
 """
 
 from dart_origin_document import get_disclosure_text
