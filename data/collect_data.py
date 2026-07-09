@@ -13,7 +13,7 @@ import html
 import json
 from datetime import datetime, timedelta
 
-from config import (
+from data.config import (
     DART_API_KEY,
     NAVER_CLIENT_ID,
     NAVER_CLIENT_SECRET,
@@ -21,9 +21,9 @@ from config import (
     check_keys
 )
 
-from corp_code import find_corp_code
-from dart_origin_document import get_disclosure_text
-from chunking import chunk_text
+from data.corp_code import find_corp_code
+from data.dart_origin_document import get_disclosure_text
+from data.chunking import chunk_text
 
 
 DART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"
@@ -111,7 +111,7 @@ def clean_text(text: str) -> str:
     네이버 뉴스 응답에 존재하는 태그를 제거하고, HTML 엔티티로 변환된 문자열을 원래의 특수문자로 되돌린다.
     """
     text = re.sub(r"</?b>", "", text)
-    return html.unescape(text) # &lt;나 &amp;처럼 HTML 엔티티로 변환된 문자열을 < 및 & 같은 원래의 특수문자로 되돌림
+    return html.unescape(text) # &lt나 &amp처럼 HTML 엔티티로 변환된 문자열을 < 및 & 같은 원래의 특수문자로 되돌림
 
 
 # 네이버 뉴스 가지고 오는 함수
@@ -163,28 +163,24 @@ def research(corp_name: str) -> dict:
     
     # 공시정보와 뉴스 가져오기
     disclosures = fetch_disclosures(corp["corp_code"])
-    # news = fetch_news(corp_name)
+    news = fetch_news(corp_name)
 
-    for dis in disclosures:
-        rcept_no = dis.get("rcept_no")
-        doc = get_disclosure_text(rcept_no)
-        chunks = chunk_text(doc)
-        print("len_chunks: ", len(chunks))
-        print(chunks[:5])
-        
+    # 공시정보나 뉴스 없으면 에러 발생
+    if not disclosures:
+        raise ValueError(f"{corp_name}의 공시 정보가 없습니다.")
+    if not news:
+        raise ValueError(f"{corp_name}의 뉴스 기사가 없습니다.")
+    
 
     return {
         "corp_name": corp_name,
         "corp_code": corp["corp_code"],
         "stock_code": corp["stock_code"],
         "disclosures": disclosures,
-        # "news": news
+        "news": news
     }
 
 
-if __name__ == "__main__":
-    result = research("삼성전자")
-    print(json.dumps(result, ensure_ascii=False, indent=2))
-    # print(f"\n공시 {len(result['disclosures'])}건, 뉴스 {len(result['news'])}건 수집 완료.")
-
-
+# if __name__ == "__main__":
+#     result = research("삼성전자")
+#     print(json.dumps(result, ensure_ascii=False, indent=2))
