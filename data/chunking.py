@@ -8,7 +8,7 @@ split_long_paragraph() -> chunk_size를 초과한 문단을 분할해 청크로 
 chunk_text() -> 입력으로 들어온 공시 원본 텍스트를 청크로 나누는 함수
 """
 
-from dart_origin_document import get_disclosure_text
+from data.dart_origin_document import get_disclosure_text
 
 
 def split_long_paragraph(para: str, chunk_size: int, overlap: int):
@@ -26,7 +26,7 @@ def split_long_paragraph(para: str, chunk_size: int, overlap: int):
     return chunks
 
 
-def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50):
+def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
     """
     서술형 텍스트를 청크 리스트로 나눈다. chunk_size, overlap은 글자 수 기준.
     바닐라 RAG에서는 최적값을 찾기보다 제대로 동작한다는 것에 의의를 둔다.
