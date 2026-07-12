@@ -7,6 +7,7 @@ embed() -> 청크들을 입력받아 임베딩하는 함수
 store_chroma_db() -> 청크들을 메타데이터와 함께 벡터 DB에 저장하는 함수
 check_disclosure_in_db() -> 현재 공시보고서가 DB에 있는지 확인하는 함수. 현재 벡터 DB는 chroma
 search() -> 질의를 입력 받아 유사 청크를 반환하는 함수
+filter_disclosure_by_relevance() -> 유사도가 임계값 이상인 공시 청크만 고르는 함수
 """
 
 import chromadb
@@ -16,6 +17,7 @@ from sentence_transformers import SentenceTransformer
 MODEL_NAME = "jhgan/ko-sroberta-multitask" # 한국어 경량 SBERT (768차원)
 CHROMA_PATH = "chroma_db"
 COLLECTION_NAME = "disclosures"
+RELEVANCE_THRESHOLD = 0.3 # 청크 반환 시 임계점. cosine 유사도 기준
 
 _model = None
 
@@ -88,3 +90,30 @@ def search(collection, query: str, corp_code: str = None, n_results: int = 3):
     query_emb = embed([query])
     where = {"corp_code": corp_code} if corp_code else None
     return collection.query(query_embeddings=query_emb, n_results=n_results, where=where)
+
+
+def filter_disclosure_by_relevance(results, threshold: float = RELEVANCE_THRESHOLD):
+    """
+    검색 결과에서 유사도가 임계값 미만인 청크를 걸러낸다.
+    전부 걸러지면 유사도가 제일 높은 값 하나만 반환한다.
+    """
+    documents = results.get("documents", [[]])[0]
+    distances = results.get("distances", [[]])[0]
+    metadatas = results.get("metadatas", [[]])[0]
+
+    kept = [
+        {"document": doc, "similarity": 1-dist, "metadata": meta}
+        for doc, dist, meta in zip(documents, distances, metadatas)
+        if (1-dist) >= threshold
+    ]
+
+    # 전부 걸러졌지만 검색 결과 자체는 있으면, 가장 유사한 1개는 남긴다.
+    if not kept and documents:
+        best_idx = min(range(len(distances)), key=lambda i: distances[i])
+        kept = [{
+            "document": documents[best_idx],
+            "similarity": 1 - distances[best_idx],
+            "metadata": metadatas[best_idx],
+        }]
+
+    return kept
