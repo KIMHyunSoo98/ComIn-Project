@@ -6,12 +6,13 @@ fetch_disclosures() -> 공시보고서 3개 가져오는 함수
 fetch_news() -> 최신 뉴스 10개를 가져오는 함수
 clean_text() -> 뉴스 기사의 텍스트에 있는 태그를 제거하는 함수
 research() -> 회사명을 입력받아 고유 코드로 변환하고, 공시보고서와 기사를 수집하는 함수
+filter_news_by_date() -> 기준 날짜 이내 뉴스만 필터링 하는 함수
 """
 
 import re
 import html
-import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 
 from data.config import (
     DART_API_KEY,
@@ -28,7 +29,6 @@ DART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"
 NAVER_NEWS_URL = "https://naverapihub.apigw.ntruss.com/search/v1/news"
 
 
-# DART list API에 공시유형을 지정해 요청을 보내고 공시 목록을 반환하는 함수
 def _fetch_disclosure_list(params: dict, pblntf_ty: str) -> list[dict]:
     """
     DART list API에 공시유형(pblntf_ty)을 지정해 요청하고 공시 목록을 반환한다.
@@ -47,7 +47,6 @@ def _fetch_disclosure_list(params: dict, pblntf_ty: str) -> list[dict]:
     return data.get("list", [])
 
 
-# 공시정보 가지고 오는 함수 (최신 사업보고서 1개, 정기보고서 1개, 주요사항보고서 1개)
 def fetch_disclosures(corp_code: str, days: int = 730, page_count: int = 10) -> list[dict]:
     """
     회사 고유 코드를 입력받아 공시 정보를 반환한다.
@@ -97,7 +96,6 @@ def fetch_disclosures(corp_code: str, days: int = 730, page_count: int = 10) -> 
     ]
 
 
-# 네이버 응답에 존재하는 태그와 HTML 엔티티 제거 함수
 def clean_text(text: str) -> str:
     """
     네이버 뉴스 응답에 존재하는 태그를 제거하고, HTML 엔티티로 변환된 문자열을 원래의 특수문자로 되돌린다.
@@ -106,11 +104,29 @@ def clean_text(text: str) -> str:
     return html.unescape(text) # &lt나 &amp처럼 HTML 엔티티로 변환된 문자열을 < 및 & 같은 원래의 특수문자로 되돌림
 
 
-# 네이버 뉴스 가지고 오는 함수
-def fetch_news(corp_name: str, query: str, display: int = 10, sort: str = "date") -> list[dict]:
+def filter_news_by_date(news: list[dict], days: int = 90, num: int = 5) -> list[dict]:
     """
-    회사명을 받아 최신 뉴스 10개를 가져온다.
-    현재는 쿼리를 단순히 회사명으로 사용하고 있어서, 나중에 쿼리를 좀 더 보완해야한다.
+    pubDate가 최근 days일 이내인 뉴스만 남긴다.
+    네이버 API에는 날짜순이나 유사도순 중 하나로만 정렬할 수 있어서 직접 필터링한다.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    kept = []
+    len_kept = 0
+    for item in news:
+        pub = parsedate_to_datetime(item["pubDate"])
+        if pub >= cutoff:
+            if len_kept >= num:
+                break
+            kept.append(item)
+            len_kept += 1
+    
+    return kept    
+
+
+def fetch_news(corp_name: str, query: str, display: int = 10, sort: str = "sim") -> list[dict]:
+    """
+    회사명과 질문을 받아 최신 뉴스 10개를 가져온다.
+    현재는 쿼리를 단순히 회사명과 질문을 합쳐서 사용하고 있어서, 나중에 쿼리를 좀 더 보완해야한다.
     그리고 API를 통한 응답에는 뉴스의 본문 내용이 전부 나와있지 않고 요약본만 있다. 
     후에 본문 내용이 필요하면 크롤링을 해서 데이터를 수집해야 한다.
     """
@@ -139,7 +155,6 @@ def fetch_news(corp_name: str, query: str, display: int = 10, sort: str = "date"
     ]
 
 
-# 공시정보와 네이버 뉴스 합쳐서 반환하는 함수
 def research(corp_name: str, query: str) -> dict:
     """
     회사명을 입력으로 받아 해당 회사의 공시 정보, 뉴스를 반환한다.
@@ -155,7 +170,8 @@ def research(corp_name: str, query: str) -> dict:
     
     # 공시정보와 뉴스 가져오기
     disclosures = fetch_disclosures(corp["corp_code"])
-    news = fetch_news(corp_name=corp_name, query=query)
+    news = fetch_news(corp_name=corp_name, query=query, display=30, sort="sim")
+    filtered_news = filter_news_by_date(news=news, days=90, num=10)
 
     # 공시정보나 뉴스 없으면 에러 발생
     if not disclosures:
@@ -169,7 +185,7 @@ def research(corp_name: str, query: str) -> dict:
         "corp_code": corp["corp_code"],
         "stock_code": corp["stock_code"],
         "disclosures": disclosures,
-        "news": news
+        "news": filtered_news
     }
 
 
