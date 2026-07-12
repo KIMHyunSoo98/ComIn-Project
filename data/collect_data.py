@@ -107,7 +107,7 @@ def clean_text(text: str) -> str:
 
 
 # 네이버 뉴스 가지고 오는 함수
-def fetch_news(corp_name: str, display: int = 10, sort: str = "date") -> list[dict]:
+def fetch_news(corp_name: str, query: str, display: int = 10, sort: str = "date") -> list[dict]:
     """
     회사명을 받아 최신 뉴스 10개를 가져온다.
     현재는 쿼리를 단순히 회사명으로 사용하고 있어서, 나중에 쿼리를 좀 더 보완해야한다.
@@ -119,7 +119,7 @@ def fetch_news(corp_name: str, display: int = 10, sort: str = "date") -> list[di
         "X-NCP-APIGW-API-KEY": NAVER_CLIENT_SECRET
     }
     params = {
-        "query": corp_name,
+        "query": f"{corp_name} {query}",
         "display": display,
         "sort": sort
     }
@@ -140,7 +140,7 @@ def fetch_news(corp_name: str, display: int = 10, sort: str = "date") -> list[di
 
 
 # 공시정보와 네이버 뉴스 합쳐서 반환하는 함수
-def research(corp_name: str) -> dict:
+def research(corp_name: str, query: str) -> dict:
     """
     회사명을 입력으로 받아 해당 회사의 공시 정보, 뉴스를 반환한다.
     """
@@ -155,7 +155,7 @@ def research(corp_name: str) -> dict:
     
     # 공시정보와 뉴스 가져오기
     disclosures = fetch_disclosures(corp["corp_code"])
-    news = fetch_news(corp_name)
+    news = fetch_news(corp_name=corp_name, query=query)
 
     # 공시정보나 뉴스 없으면 에러 발생
     if not disclosures:
