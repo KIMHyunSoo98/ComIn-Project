@@ -14,8 +14,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# REPORT_MODEL = "claude-haiku-4-5"  # 기본값
-REPORT_MODEL = "claude-sonnet-5"  # Sonnet
+REPORT_MODEL = "claude-sonnet-5"  # 기본값
 
 _client = None
 
@@ -25,7 +24,7 @@ _call_count = 0
 
 def _get_client():
     """
-    Anthropic 클라이언트를 한 번만 만들어 재사용한다. (embedding.py의 get_model() 패턴)
+    Anthropic 클라이언트를 한 번만 만들어 재사용한다.
     """
     global _client
     if _client is None:
@@ -35,25 +34,25 @@ def _get_client():
     return _client
 
 
-def build_context(results, news: list[dict]) -> str:
+def build_context(kept_chunks, news: list[dict]) -> str:
     """
-    search()의 결과(공시 청크)와 research()의 뉴스를 프롬프트용 문자열로 조립한다.
+    filter_by_relevance()를 거친 공시 청크와 research()의 뉴스를 프롬프트용 문자열로 조립한다.
     공시 발췌와 뉴스를 섹션으로 구분해, LLM이 '공식 공시'와 '언론 보도'를 구분하게 한다.
     LLM 호출은 없다.
     """
-    # results 구조: collection.query() 반환값
-    #   documents[0] = 청크 텍스트 리스트, distances[0] = 거리 리스트, metadatas[0] = 메타데이터
-    documents = results.get("documents", [[]])[0]
-    distances = results.get("distances", [[]])[0]
-
     # [공시 발췌] 섹션 조립 (청크 + 유사도)
     disclosure_lines = ["[공시 발췌]"]
-    for i, (doc, dist) in enumerate(zip(documents, distances), start=1):
-        sim = 1 - dist
-        disclosure_lines.append(f"\n발췌 {i} (유사도: {sim:.3f}):\n{doc}")
+    if not kept_chunks:
+        disclosure_lines.append("\n(질문과 관련된 공시 발췌 없음)")
+    for i, item in enumerate(kept_chunks, start=1):
+        rcept_no = item["metadata"].get("rcept_no")
+        sim = item["similarity"]
+        disclosure_lines.append(f"\n발췌 {i} (공시번호: {rcept_no}, 유사도: {sim:.3f}):\n{item['document']}")
 
     # [최근 뉴스] 섹션 조립 (제목 / 요약 / 링크 / 날짜)
     news_lines = ["[최근 뉴스]"]
+    if not news:
+        disclosure_lines.append("\n(질문과 관련된 최근 관련 뉴스 없음)")
     for i, item in enumerate(news, start=1):
         news_lines.append(
             f"\n뉴스 {i}:\n"
