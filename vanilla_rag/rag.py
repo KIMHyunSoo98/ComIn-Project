@@ -1,20 +1,23 @@
 """
 LangChain 라이브러리를 사용하지 않고 파이썬으로 구현한 RAG 파이프라인.
-보고서를 생성하는 LLM은 현재 'claude-haiku-4-5'이다.
+보고서를 생성하는 LLM은 anthropic 모델을 사용하고 있다.
 """
 
 from data.collect_data import research
 from data.dart_origin_document import get_disclosure_text
 from data.chunking import chunk_text
-from data.embedding import get_collection, store_chroma_db, check_disclosure_in_db, search
+from data.embedding import get_collection, store_chroma_db, check_disclosure_in_db, search, filter_disclosure_by_relevance
 from vanilla_rag.generate import build_context, generate_report
 
+
 if __name__ == "__main__":
-    
+
+    question = ""
     while True:
         corp_name = input("회사명: ")
         try:
-            question = input("질문: ")
+            if not question:
+                question = input("질문: ")
             information = research(corp_name=corp_name, query=question)
             break
         except ValueError as e:
@@ -40,9 +43,9 @@ if __name__ == "__main__":
     # print("결과: \n", results)
 
     # 보고서 생성
-    news = information.get("news", [[]])
-    context = build_context(results=results, news=news)
-    # print("context: \n", context)
+    news = information.get("news")
+    kept = filter_disclosure_by_relevance(results=results)
+    context = build_context(kept_chunks=kept, news=news)
     report = generate_report(corp_name=corp_name, question=question, context=context)
 
     print(report)
