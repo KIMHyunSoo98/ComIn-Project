@@ -52,7 +52,7 @@ def build_context(kept_chunks, news: list[dict]) -> str:
     # [최근 뉴스] 섹션 조립 (제목 / 요약 / 링크 / 날짜)
     news_lines = ["[최근 뉴스]"]
     if not news:
-        disclosure_lines.append("\n(질문과 관련된 최근 관련 뉴스 없음)")
+        news_lines.append("\n(질문과 관련된 최근 관련 뉴스 없음)")
     for i, item in enumerate(news, start=1):
         news_lines.append(
             f"\n뉴스 {i}:\n"
