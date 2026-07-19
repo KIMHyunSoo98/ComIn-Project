@@ -2,12 +2,10 @@
 LangChain 컴포넌트로 구현한 임베딩 / 벡터 스토어 / 청킹 / 검색.
 vanilla의 data/embedding.py와 data/chunking.py를 대체한다.
 
-- SentenceTransformer 직접 호출 -> HuggingFaceEmbeddings
-- chromadb.PersistentClient 직접 조작 -> langchain_chroma.Chroma
-- 직접 구현한 chunk_text() -> RecursiveCharacterTextSplitter
-
-임베딩 모델과 chroma 경로/컬렉션은 vanilla와 동일하게 두어 기존 chroma_db를 그대로 재사용한다.
-(같은 모델이므로 임베딩 공간이 일치해 재적재가 필요 없다.)
+임베딩 모델은 nlpai-lab/KURE-v1(한국어 검색 특화, 8192토큰, 1024차원)을 쓴다.
+Phase 2 초기에는 vanilla와 같은 ko-sroberta(128토큰)로 chroma_db를 재사용했으나,
+긴 문서/표 수용과 검색 품질을 위해 2026-07-16 KURE-v1로 교체하며 새 컬렉션에 재적재했다.
+(배경: docs/2026-07-16-embedding-model-change.md)
 
 get_embeddings() -> 임베딩 모델을 한 번만 로드해 재사용하는 함수
 get_vectorstore() -> Chroma 벡터 스토어를 가지고 오는 함수
@@ -24,9 +22,11 @@ from langchain_chroma import Chroma
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 
-MODEL_NAME = "jhgan/ko-sroberta-multitask"  # 한국어 경량 SBERT (768차원)
+# 한국어 검색 특화 임베딩. bge-m3 기반이라 최대 8192토큰 / 1024차원.
+MODEL_NAME = "nlpai-lab/KURE-v1"
 CHROMA_PATH = "chroma_db"
-COLLECTION_NAME = "disclosures"
+# 임베딩 차원이 768->1024로 바뀌어 기존 'disclosures' 컬렉션과 호환되지 않으므로 새 컬렉션을 쓴다.
+COLLECTION_NAME = "disclosures_kure_v1"
 RELEVANCE_THRESHOLD = 0.3  # 청크 반환 시 임계점. cosine 유사도 기준
 
 _embeddings = None
@@ -36,13 +36,19 @@ _vectorstore = None
 def get_embeddings():
     """
     HuggingFaceEmbeddings 인스턴스를 한 번만 만들어 재사용한다.
-    내부적으로 sentence-transformers를 쓰므로 vanilla의 embed()와 같은 벡터를 만든다.
     적재와 검색이 반드시 같은 임베딩을 써야 임베딩 공간이 일치한다.
+
+    normalize_embeddings=True로 임베딩을 L2 정규화한다.
+    - KURE-v1(bge-m3 계열)은 정규화 + cosine 사용을 전제로 학습됐다.
+    - 정규화하면 cosine과 L2가 같은 순위를 주므로 거리 지표 선택에서 자유로워진다.
     """
     global _embeddings
 
     if _embeddings is None:
-        _embeddings = HuggingFaceEmbeddings(model_name=MODEL_NAME)
+        _embeddings = HuggingFaceEmbeddings(
+            model_name=MODEL_NAME,
+            encode_kwargs={"normalize_embeddings": True},
+        )
     return _embeddings
 
 

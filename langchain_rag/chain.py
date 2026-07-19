@@ -2,10 +2,6 @@
 LangChain 컴포넌트로 구현한 프롬프트 / LLM / 리포트 생성 체인.
 vanilla의 vanilla_rag/generate.py를 대체한다.
 
-- f-string 프롬프트 -> ChatPromptTemplate
-- anthropic.Anthropic().messages.create -> ChatAnthropic
-- 수동 호출 -> LCEL 체인 (context 조립 | prompt | llm | StrOutputParser)
-
 프로젝트의 유일한 유료 API가 쓰이는 곳이다. 예산 방어를 위해 실행당 1회만 호출한다.
 
 build_context() -> 검색된 청크와 뉴스를 프롬프트용 문자열로 조립하는 함수 (LLM 호출 없음)
