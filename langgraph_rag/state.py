@@ -1,10 +1,6 @@
 """
 LangGraph 파이프라인이 노드 간에 주고받는 상태 정의.
 
-LangChain 버전에서는 main() 안의 지역 변수로 흘러가던 중간 결과를 LangGraph에서는 명시적인 상태 스키마로 선언한다.
-- 각 노드는 상태 전체를 읽고, 자신이 바꾼 필드만 부분 딕셔너리로 반환한다.
-- 상태가 명시적이라 실행 후 중간 결과(검색된 청크, 조립된 컨텍스트 등)를 들여다볼 수 있다.
-
 ResearchState -> 그래프 전체가 공유하는 상태 스키마
 initial_state() -> 회사명/질문으로 그래프 입력용 초기 상태를 만드는 함수
 """
@@ -16,22 +12,29 @@ from langchain_core.documents import Document
 class ResearchState(TypedDict):
     """
     리서치 파이프라인의 전체 상태.
-
-    paid_call_count는 예산 방어용 카운터다.
     """
 
     # 입력
     corp_name: str
     question: str
 
-    # collect 노드 결과
+    # resolve_corp 노드 결과 (매칭하는 회사명 못찾으면 corp_code 없이 corp_candidates만 존재)
     corp_code: str
     stock_code: str
+    corp_candidates: list[str]
+
+    # analyze_query 노드 결과
+    keywords: list[str]
+    news_mode: str  # "keyword"(A: 회사명+키워드) | "trend"(B: 회사명만+최신순)
+    search_query: str  # retrieve가 쓰는 쿼리. 처음엔 질문 전문, 재검색 시 키워드로 교체
+
+    # collect_disclosures / collect_news 노드 결과
     disclosures: list[dict]
     news: list[dict]
 
-    # retrieve 노드 결과 
+    # retrieve 노드 결과
     kept_chunks: list[tuple[Document, float]]
+    retrieve_attempts: int  # 재검색 상한 제어용
 
     # generate 노드 결과
     context: str
@@ -44,10 +47,10 @@ class ResearchState(TypedDict):
 def initial_state(corp_name: str, question: str) -> ResearchState:
     """
     그래프 입력용 초기 상태를 만든다.
-    paid_call_count를 0으로 명시해, 예산 방어가 카운터 없이 실행되는 일이 없게 한다.
     """
     return {
         "corp_name": corp_name,
         "question": question,
+        "retrieve_attempts": 0,
         "paid_call_count": 0,
     }
