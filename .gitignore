@@ -9,3 +9,4 @@ __pycache__/
 cache/
 *.DS_Store
 chroma_db/
+tests/
