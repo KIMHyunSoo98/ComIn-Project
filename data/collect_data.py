@@ -1,9 +1,8 @@
 """
 기업명으로 DART 공시 데이터와 네이버 뉴스 데이터를 수집하는 파이썬 파일.
-현재는 최신 사업보고서 1개, 정기보고서 1개, 주요사항보고서(존재하면) 1개, 총 3개와 네이버 최신 기사 10개를 수집한다.
 
-fetch_disclosures() -> 공시보고서 3개 가져오는 함수
-fetch_news() -> 최신 뉴스 10개를 가져오는 함수
+fetch_disclosures() -> 공시보고서를 가져오는 함수
+fetch_news() -> 뉴스를 가져오는 함수
 clean_text() -> 뉴스 기사의 텍스트에 있는 태그를 제거하는 함수
 research() -> 회사명을 입력받아 고유 코드로 변환하고, 공시보고서와 기사를 수집하는 함수
 filter_news_by_date() -> 기준 날짜 이내 뉴스만 필터링 하는 함수
@@ -125,7 +124,7 @@ def filter_news_by_date(news: list[dict], days: int = 90, num: int = 5) -> list[
 
 def fetch_news(corp_name: str, query: str, display: int = 10, sort: str = "sim") -> list[dict]:
     """
-    회사명과 질문을 받아 최신 뉴스 10개를 가져온다.
+    회사명과 질문을 받아 최신 뉴스를 display개 가져온다.
     현재는 쿼리를 단순히 회사명과 질문을 합쳐서 사용하고 있어서, 나중에 쿼리를 좀 더 보완해야한다.
     그리고 API를 통한 응답에는 뉴스의 본문 내용이 전부 나와있지 않고 요약본만 있다. 
     후에 본문 내용이 필요하면 크롤링을 해서 데이터를 수집해야 한다.
