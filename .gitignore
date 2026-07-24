@@ -10,3 +10,5 @@ cache/
 *.DS_Store
 chroma_db/
 tests/
+docs/
+!docs/DEVLOG.md
