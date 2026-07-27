@@ -5,11 +5,16 @@ SQLAlchemy 엔진/세션/Base 정의
 현재 엔드포인트는 동기라 FastAPI가 스레드풀에서 실행한다.
 """
 
+from pathlib import Path
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 
-DATABASE_URL = "sqlite:///research_history.db"
+DB_DIR = Path(__file__).resolve().parent.parent / "db"
+DB_DIR.mkdir(exist_ok=True)
+
+DATABASE_URL = f"sqlite:///{DB_DIR / 'research_history.db'}"
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 
