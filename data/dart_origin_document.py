@@ -7,8 +7,8 @@ import io
 import os
 import re
 import zipfile
-import xml.etree.ElementTree as ET
 
+from lxml import etree
 import requests
 from dotenv import load_dotenv
 
@@ -24,6 +24,10 @@ _RAW_AMP = re.compile(r"&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9A-Fa-f]+);)")
 # 진짜 태그는 '<' 다음에 문자([A-Za-z]) / 닫는태그(/) / 선언·처리명령(? !)이 오고,
 # 텍스트로 쓰인 '<'(예: "< TV 시장점유율 추이 >")는 뒤에 공백·비문자가 온다.
 _RAW_LT = re.compile(r"<(?![A-Za-z/?!])")
+
+# XML 1.0에서 허용되지 않는 제어문자(탭·개행·복귀 제외). 원문에 섞여 있으면
+# 파서가 "not well-formed (invalid token)"으로 죽으므로 제거한다.
+_ILLEGAL_XML_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 
 
 def fetch_document_zip(rcept_no: str) -> bytes:
@@ -53,7 +57,8 @@ def extract_main_xml(zip_bytes: bytes) -> str:
 
 def clean_dart_xml(xml_str: str) -> str:
     """
-    DART 원문의 이스케이프 누락을 보정한다.
+    DART 원문의 이스케이프 누락/금지문자를 보정한다.
+      0) XML 금지 제어문자 제거 ("invalid token" 원인)
       1) raw '&'  -> '&amp;'  (예: "R&D")
       2) raw '<'  -> '&lt;'   (예: "< TV 시장점유율 추이 >")
 
@@ -61,10 +66,10 @@ def clean_dart_xml(xml_str: str) -> str:
     이미 유효 엔티티이므로 다시 건드려선 안 되는데, '&' 치환을 먼저 끝내두면
     그 뒤 생성된 '&lt;'는 재처리되지 않는다.
 
-    한계: 지금까지 관찰된 두 종류('&', '<')만 보정한다. 다른 종류의 깨짐이
-    있으면 이 함수로는 부족하며, 그 경우 관대한 파서(lxml recover 등)로
-    전환하는 편이 낫다.
+    이 함수로도 못 잡는 깨짐은 get_disclosure_text의 관대한 파서(lxml recover)가
+    최종적으로 건너뛴다.
     """
+    xml_str = _ILLEGAL_XML_CHARS.sub("", xml_str)
     xml_str = _RAW_AMP.sub("&amp;", xml_str)
     xml_str = _RAW_LT.sub("&lt;", xml_str)
     return xml_str
@@ -111,5 +116,11 @@ def get_disclosure_text(rcept_no: str) -> str:
     """
     zip_bytes = fetch_document_zip(rcept_no)
     xml_str = clean_dart_xml(extract_main_xml(zip_bytes))
-    root = ET.fromstring(xml_str)
+    # DART 원문은 표준 XML을 벗어난 토큰(SGML 잔재·특수문자)이 섞여 있을 때가 많아,
+    # 표준 파서 대신 관대한 recover 파서로 깨진 토큰을 건너뛰며 파싱한다.
+    # huge_tree=True: 사업보고서 등 대용량 문서의 크기/깊이 제한을 푼다.
+    parser = etree.XMLParser(recover=True, huge_tree=True)
+    root = etree.fromstring(xml_str.encode("utf-8"), parser=parser)
+    if root is None:
+        return ""
     return extract_narrative_text(root)

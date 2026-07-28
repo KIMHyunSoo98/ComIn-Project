@@ -109,9 +109,14 @@ def index(state: ResearchState) -> dict:
         if check_disclosure_in_db(vectorstore, rcept_no):
             continue
 
-        text = get_disclosure_text(rcept_no)
-        documents = split_disclosure_text(text, rcept_no, state["corp_code"])
-        store_disclosure(vectorstore, documents)
+        # 개별 공시 원문 처리 실패(원문 다운로드/파싱 등)는 건너뛴다.
+        # 한 건의 깨진 문서 때문에 리서치 전체가 죽지 않도록 격리한다.
+        try:
+            text = get_disclosure_text(rcept_no)
+            documents = split_disclosure_text(text, rcept_no, state["corp_code"])
+            store_disclosure(vectorstore, documents)
+        except Exception:
+            continue
 
     return {}
 
