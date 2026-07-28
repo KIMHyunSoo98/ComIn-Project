@@ -9,6 +9,7 @@ FastAPI가 동기 경로를 스레드풀에서 실행하므로 이벤트 루프�
 """
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from api.database import get_session
@@ -25,6 +26,19 @@ def create_research(payload: ResearchRequest, db: Session = Depends(get_session)
     except ValueError as e:
         # 공시/뉴스가 없어 리서치를 만들 수 없는 경우
         raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.post("/research/stream")
+def create_research_stream(payload: ResearchRequest, db: Session = Depends(get_session)):
+    """
+    보고서를 SSE로 스트리밍한다.
+    POST /research와 동작은 같지만 진행 상황과 리포트 토큰을 실시간으로 흘려보낸다.
+    """
+    return StreamingResponse(
+        research_controller.stream_research(db, payload.corp_name, payload.question),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/research", response_model=list[ResearchRecord])
