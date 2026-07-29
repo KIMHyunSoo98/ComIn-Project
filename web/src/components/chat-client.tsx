@@ -32,6 +32,7 @@ type Pinned = { corp_name: string; corp_code: string } | null;
 export function ChatClient() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pinned, setPinned] = useState<Pinned>(null);
+  const [threadId, setThreadId] = useState<string | null>(null);
   const [company, setCompany] = useState("");
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
@@ -72,7 +73,9 @@ export function ChatClient() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ corp_name: corpName, question: q }),
+        body: JSON.stringify(
+          threadId ? { question: q, thread_id: threadId } : { corp_name: corpName, question: q },
+        ),
         signal: controller.signal,
       });
 
@@ -137,6 +140,7 @@ export function ChatClient() {
                 created_at: event.created_at,
               };
               setPinned({ corp_name: record.corp_name, corp_code: record.corp_code });
+              setThreadId(event.thread_id);
               replaceById(streamId, {
                 id: uid("report"),
                 role: "assistant",
@@ -211,6 +215,7 @@ export function ChatClient() {
   function reset() {
     if (busy) return;
     setPinned(null);
+    setThreadId(null);
     setMessages([]);
     setCompany("");
     setQuestion("");

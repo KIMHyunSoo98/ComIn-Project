@@ -44,14 +44,18 @@ def route_after_retrieve(state: ResearchState) -> str:
     )
     return "rewrite" if can_rewrite else "generate"
 
+def route_entry(state: ResearchState) -> str:
+    # 첫 턴이 아니면 corp_code에 값이 있음
+    return "followup" if "corp_code" in state else "first"
 
-def build_graph():
+def build_graph(checkpointer=None):
     
     builder = StateGraph(ResearchState)
 
     # 노드 추가
     builder.add_node("resolve_corp", resolve_corp)
     builder.add_node("analyze_query", analyze_query)
+    builder.add_node("prepare_followup", analyze_query)
     builder.add_node("collect_disclosures", collect_disclosures)
     builder.add_node("collect_news", collect_news)
     builder.add_node("index", index)
@@ -60,21 +64,27 @@ def build_graph():
     builder.add_node("generate", generate)
 
     # 엣지 추가
-    builder.add_edge(START, "resolve_corp")
+    # 멀티 턴 여부 분기
+    builder.add_conditional_edges(START, route_entry, {"first": "resolve_corp", "followup": "prepare_followup"})
+
     builder.add_conditional_edges(
         "resolve_corp", route_after_resolve, {"analyze": "analyze_query", "end": END}
     )
 
-    # 공시정보와 뉴스 병렬 수집
+    # 공시정보와 뉴스 병렬 수집 / 첫 턴
     builder.add_edge("analyze_query", "collect_disclosures")
     builder.add_edge("analyze_query", "collect_news")
     builder.add_edge(["collect_disclosures", "collect_news"], "index")
 
     builder.add_edge("index", "retrieve")
+
+    # 멀티 턴
+    builder.add_edge("prepare_followup", "retrieve")
+
     builder.add_conditional_edges(
         "retrieve", route_after_retrieve, {"generate": "generate", "rewrite": "rewrite_query"}
     )
     builder.add_edge("rewrite_query", "retrieve")
     builder.add_edge("generate", END)
 
-    return builder.compile()
+    return builder.compile(checkpointer=checkpointer)

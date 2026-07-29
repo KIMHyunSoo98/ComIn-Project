@@ -5,9 +5,10 @@ ResearchState -> 그래프 전체가 공유하는 상태 스키마
 initial_state() -> 회사명/질문으로 그래프 입력용 초기 상태를 만드는 함수
 """
 
-from typing import TypedDict
+from typing import TypedDict, Annotated
 from langchain_core.documents import Document
-
+from langchain_core.messages import AnyMessage
+from langgraph.graph.message import add_messages
 
 class ResearchState(TypedDict):
     """
@@ -39,6 +40,9 @@ class ResearchState(TypedDict):
     # generate 노드 결과
     context: str
     report: str
+
+    # 멀티턴을 위한 이전 대화 저장
+    messages: Annotated[list[AnyMessage], add_messages]
 
     # 이번 그래프 실행에서 사용한 유료 API 호출 횟수
     paid_call_count: int

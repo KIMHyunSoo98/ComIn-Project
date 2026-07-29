@@ -38,5 +38,5 @@ export type StreamEvent =
   | { type: "metadata"; corp_name: string; corp_code: string }
   | { type: "candidates"; candidates: string[] }
   | { type: "chunk"; text: string }
-  | ({ type: "done" } & ResearchRecord)
+  | ({ type: "done"; thread_id: string } & ResearchRecord)
   | { type: "error"; message: string };

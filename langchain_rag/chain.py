@@ -14,7 +14,7 @@ generate_report() -> 체인을 실행해 리포트를 생성하는 함수 (유�
 import os
 from langchain_core.documents import Document
 from langchain_core.runnables import Runnable
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
 from langchain_anthropic import ChatAnthropic
 from dotenv import load_dotenv
@@ -97,8 +97,27 @@ def get_prompt() -> ChatPromptTemplate:
         "{context}"
     )
 
-    return ChatPromptTemplate.from_messages([("system", system), ("human", human)])
+    return ChatPromptTemplate.from_messages([("system", system), MessagesPlaceholder("history"), ("human", human)])
 
+def get_followup_prompt() -> ChatPromptTemplate:
+    """
+    멀티턴 질문용 프롬프트.
+    리포트 작성이 아니라 이전 대화와 자료를 근거로 사용자의 후속 질문에 답한다.
+    """
+    system = (
+        "너는 기업 리서치 애널리스트다. 앞선 대화와 아래 자료(공시 발췌·뉴스)를 근거로 사용자의 후속 질문에 대화하듯 간결히 답해라.\n"
+        "- 이전 답변의 맥락을 이어가되, 이번 질문에 초점을 맞춘다.\n"
+        "- 근거로 쓴 발췌/뉴스는 (발췌 n)·(뉴스 n)으로 표기한다.\n"
+        "- 자료에 없는 내용은 추측하지 말고 '주어진 자료로는 확인할 수 없음'이라고 밝힌다.\n"
+        "- 정형 리포트 형식이 아니라, 질문에 답하는 형태로 쓴다."
+    )
+    human = (
+        "회사명: {corp_name}\n"
+        "질문: {question}\n\n"
+        "{context}"
+    )
+
+    return ChatPromptTemplate.from_messages([("system", system), MessagesPlaceholder("history"), ("human", human)])
 
 def build_report_chain() -> Runnable:
     """
@@ -107,7 +126,11 @@ def build_report_chain() -> Runnable:
     """
     return get_prompt() | get_llm() | StrOutputParser()
 
-
+def build_followup_chain() -> Runnable:
+    """
+    후속(멀티턴) 질문용 체인. get_followup_prompt() | llm | StrOutputParser().
+    """
+    return get_followup_prompt() | get_llm() | StrOutputParser()
 
 def generate_report(corp_name: str, question: str, context: str) -> str:
     """
@@ -121,4 +144,4 @@ def generate_report(corp_name: str, question: str, context: str) -> str:
     _call_count += 1
 
     chain = build_report_chain()
-    return chain.invoke({"corp_name": corp_name, "question": question, "context": context})
+    return chain.invoke({"corp_name": corp_name, "question": question, "context": context, "history": []})

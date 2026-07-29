@@ -24,7 +24,8 @@ from langchain_rag.vectorstore import (
     check_disclosure_in_db,
     search_disclosure,
 )
-from langchain_rag.chain import build_context, build_report_chain
+from langchain_rag.chain import build_context, build_report_chain, build_followup_chain
+from langchain_core.messages import HumanMessage, AIMessage
 from langgraph_rag.state import ResearchState
 from langgraph_rag.query_analysis import extract_keywords
 
@@ -155,13 +156,14 @@ def generate(state: ResearchState) -> dict:
         )
 
     context = build_context(state["kept_chunks"], state["news"])
-    chain = build_report_chain()
+    chain = build_followup_chain() if state.get("messages") else build_report_chain()
     report = chain.invoke(
-        {"corp_name": state["corp_name"], "question": state["question"], "context": context}
+        {"corp_name": state["corp_name"], "question": state["question"], "context": context, "history": state.get("messages", [])}
     )
 
     return {
         "context": context,
         "report": report,
         "paid_call_count": state["paid_call_count"] + 1,
+        "messages": [HumanMessage(content=state["question"]), AIMessage(content=report)]
     }

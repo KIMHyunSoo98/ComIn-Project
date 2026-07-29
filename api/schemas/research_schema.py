@@ -13,8 +13,9 @@ from pydantic import BaseModel, ConfigDict
 
 
 class ResearchRequest(BaseModel):
-    corp_name: str
+    corp_name: str | None = None   # 첫 턴에 필요. 후속 턴(thread_id)에서는 불필요
     question: str
+    thread_id: str | None = None   # 있으면 후속 턴(같은 대화 이어가기)
 
 
 class ResearchRecord(BaseModel):

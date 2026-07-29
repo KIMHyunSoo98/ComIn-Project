@@ -4,10 +4,12 @@
 """
 
 import json
+import uuid
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from langchain_core.messages import BaseMessage
+from langgraph.checkpoint.memory import MemorySaver
 
 from langgraph_rag.state import initial_state
 from langgraph_rag.graph import build_graph
@@ -23,7 +25,9 @@ def get_graph():
     """
     global _graph
     if _graph is None:
-        _graph = build_graph()
+        # 멀티턴 대화를 위해 checkpointer를 붙여 컴파일한다(thread_id로 턴 간 상태 유지).
+        # 지금은 InMemory라 서버가 종료되면 사라진다. 후에 sqliteSaver나 postgres를 사용할 예정.
+        _graph = build_graph(checkpointer=MemorySaver())
     return _graph
 
 
@@ -31,10 +35,12 @@ def run_research(db: Session, corp_name: str, question: str) -> dict:
     """
     그래프를 실행한다.
 
-    공시/뉴스가 없어 보고서를 만들 수 없으면 그래프가 ValueError를 던지고,
-    라우터가 이를 HTTP 422로 변환한다. 유료 호출은 그래프 실행당 1회로 제한된다.
+    공시/뉴스가 없어 보고서를 만들 수 없으면 그래프가 ValueError를 던지고 라우터가 이를 HTTP 422로 변환한다.
+    유료 호출은 그래프 실행당 1회로 제한된다.
     """
-    final_state = get_graph().invoke(initial_state(corp_name, question))
+    # checkpointer가 붙어 있어 thread_id가 필요하다. 블로킹 단발 실행은 매번 새 스레드를 쓴다.
+    config = {"configurable": {"thread_id": uuid.uuid4().hex}}
+    final_state = get_graph().invoke(initial_state(corp_name, question), config=config)
 
     if "report" in final_state:
         research = Research(
@@ -87,7 +93,9 @@ def _sse(event: dict) -> str:
 
 
 def _chunk_text(message) -> str:
-    """messages 스트림의 메시지 청크에서 텍스트만 뽑는다 (문자열/블록리스트 모두 대응)."""
+    """
+    messages 스트림의 메시지 청크에서 텍스트만 뽑는다.
+    """
     if not isinstance(message, BaseMessage):
         return ""
     content = message.content
@@ -98,28 +106,34 @@ def _chunk_text(message) -> str:
     return ""
 
 
-def stream_research(db: Session, corp_name: str, question: str):
+def stream_research(db: Session, corp_name: str | None, question: str, thread_id: str | None = None):
     """
-    그래프를 스트리밍 실행하며 SSE 이벤트를 만들어낸다.
+    그래프를 스트리밍 실행하며 SSE 이벤트를 만든다.
 
-    이벤트:
-    - status    : 파이프라인 단계 진행 상황
-    - metadata  : 해결된 회사 정보(corp_name/corp_code)
-    - candidates: 회사명 미해결 시 후보 목록 (여기서 종료)
-    - chunk     : 리포트 토큰 (실시간)
-    - done      : 저장된 레코드 (report 전문 포함 - 토큰 스트리밍 실패 시 폴백)
-    - error     : 실패 사유
+    - thread_id 없음 -> 새 대화(첫 턴): initial_state로 전체 파이프라인 실행.
+    - thread_id 있음 -> 후속 턴: 회사/공시/뉴스는 checkpointer가 복원, 새 질문으로 재검색만.
 
-    유료 호출은 그래프 실행당 1회로 제한된다.
-    토큰 스트리밍이 되지 않아도 done.report로 전문을 전달하므로 결과는 항상 완전하다.
+    이벤트: status / metadata / candidates / chunk / done / error.
+    유료 호출은 턴당 1회로 제한된다. 오류로 토큰 스트리밍이 안 돼도 done.report로 전문을 전달한다.
     """
-    resolved: dict = {}
+    is_followup = thread_id is not None
+    if not thread_id:
+        thread_id = uuid.uuid4().hex
+    config = {"configurable": {"thread_id": thread_id}}
+
+    # 후속 턴은 새 질문과 리셋 필드만 넣는다(나머지 상태는 checkpointer가 유지 -> 공시·뉴스 재사용).
+    graph_input = (
+        {"question": question, "retrieve_attempts": 0, "paid_call_count": 0}
+        if is_followup
+        else initial_state(corp_name, question)
+    )
+
     report_text = ""
     ended_with_candidates = False
 
     try:
         for mode, chunk in get_graph().stream(
-            initial_state(corp_name, question), stream_mode=["updates", "messages"]
+            graph_input, config=config, stream_mode=["updates", "messages"]
         ):
             if mode == "updates":
                 for node, update in chunk.items():
@@ -132,15 +146,11 @@ def stream_research(db: Session, corp_name: str, question: str):
                         yield _sse({"type": "candidates", "candidates": update.get("corp_candidates", [])})
                         continue
 
-                    for key in ("corp_name", "corp_code", "news_mode", "report"):
-                        if update.get(key) is not None:
-                            resolved[key] = update[key]
-
                     if node == "resolve_corp":
                         yield _sse({
                             "type": "metadata",
-                            "corp_name": resolved.get("corp_name"),
-                            "corp_code": resolved.get("corp_code"),
+                            "corp_name": update.get("corp_name"),
+                            "corp_code": update.get("corp_code"),
                         })
 
                     yield _sse({"type": "status", "stage": node, "message": _STAGE_MESSAGES.get(node, node)})
@@ -165,17 +175,19 @@ def stream_research(db: Session, corp_name: str, question: str):
     if ended_with_candidates:
         return
 
-    final_report = resolved.get("report") or report_text
+    # 후속 턴은 resolve/collect가 안 돌아 updates에 회사 정보가 없다 -> 해당 thread_id의 가장 최신 state에서 정보를 가져온다.
+    final = get_graph().get_state(config).values
+    final_report = final.get("report") or report_text
     if not final_report:
         yield _sse({"type": "error", "message": "리포트를 생성하지 못했습니다."})
         return
 
     research = Research(
-        corp_name=resolved.get("corp_name", corp_name),
-        corp_code=resolved.get("corp_code", ""),
+        corp_name=final.get("corp_name") or corp_name or "",
+        corp_code=final.get("corp_code", ""),
         question=question,
         report=final_report,
-        news_mode=resolved.get("news_mode", ""),
+        news_mode=final.get("news_mode", ""),
     )
     db.add(research)
     db.commit()
@@ -184,6 +196,7 @@ def stream_research(db: Session, corp_name: str, question: str):
     yield _sse({
         "type": "done",
         "id": research.id,
+        "thread_id": thread_id,
         "corp_name": research.corp_name,
         "corp_code": research.corp_code,
         "question": research.question,
