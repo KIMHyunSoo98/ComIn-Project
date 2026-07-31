@@ -13,10 +13,12 @@ from fastapi import FastAPI
 from api.database import Base, engine
 from api.models import research_model  # noqa: F401  Base에 테이블 등록용 import
 from api.routers import research_router
+from observability.tracing import setup_tracing
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_tracing()
     Base.metadata.create_all(engine)
     yield
 

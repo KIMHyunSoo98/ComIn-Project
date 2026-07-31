@@ -10,6 +10,7 @@ LangGraph로 마이그레이션한 RAG 파이프라인의 엔트리포인트.
 
 from langgraph_rag.state import initial_state
 from langgraph_rag.graph import build_graph
+from observability.tracing import setup_tracing, trace_config
 
 
 def main() -> None:
@@ -17,6 +18,7 @@ def main() -> None:
     회사명과 질문을 입력받아 그래프를 실행하고 리포트를 출력한다.
     회사명이 해석되지 않으면 퍼지매칭 후보를 보여주고 다시 입력받는다.
     """
+    setup_tracing()
     graph = build_graph()
 
     question = ""
@@ -26,7 +28,10 @@ def main() -> None:
             question = input("질문: ")
 
         try:
-            final_state = graph.invoke(initial_state(corp_name, question))
+            final_state = graph.invoke(
+                initial_state(corp_name, question),
+                config=trace_config("research-cli", corp_name=corp_name),
+            )
         except ValueError as e:
             print(e)            
             continue

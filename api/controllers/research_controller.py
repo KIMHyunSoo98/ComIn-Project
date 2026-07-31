@@ -14,6 +14,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph_rag.state import initial_state
 from langgraph_rag.graph import build_graph
 from api.models.research_model import Research
+from observability.tracing import trace_config
 
 
 _graph = None
@@ -39,7 +40,10 @@ def run_research(db: Session, corp_name: str, question: str) -> dict:
     유료 호출은 그래프 실행당 1회로 제한된다.
     """
     # checkpointer가 붙어 있어 thread_id가 필요하다. 블로킹 단발 실행은 매번 새 스레드를 쓴다.
-    config = {"configurable": {"thread_id": uuid.uuid4().hex}}
+    config = {
+        "configurable": {"thread_id": uuid.uuid4().hex},
+        **trace_config("research", corp_name=corp_name),
+    }
     final_state = get_graph().invoke(initial_state(corp_name, question), config=config)
 
     if "report" in final_state:
@@ -119,7 +123,10 @@ def stream_research(db: Session, corp_name: str | None, question: str, thread_id
     is_followup = thread_id is not None
     if not thread_id:
         thread_id = uuid.uuid4().hex
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {
+        "configurable": {"thread_id": thread_id},
+        **trace_config("research-stream", corp_name=corp_name, is_followup=is_followup),
+    }
 
     # 후속 턴은 새 질문과 리셋 필드만 넣는다(나머지 상태는 checkpointer가 유지 -> 공시·뉴스 재사용).
     graph_input = (
