@@ -14,7 +14,14 @@ generate() -> 컨텍스트를 조립하고 리포트를 생성하는 노드
 
 from data.config import check_keys
 from data.corp_code import find_corp_code, normalize_corp_name, find_corp_candidates
-from data.collect_data import fetch_disclosures, fetch_news, filter_news_by_date
+from data.collect_data import (
+    NEWS_DISPLAY,
+    NEWS_SORT_KEYWORD,
+    NEWS_SORT_TREND,
+    fetch_disclosures,
+    fetch_news,
+    filter_news_by_date,
+)
 from data.dart_origin_document import get_disclosure_text
 from langchain_rag.vectorstore import (
     RELEVANCE_THRESHOLD,
@@ -89,13 +96,16 @@ def collect_news(state: ResearchState) -> dict:
     B도 0건이면 뉴스 없이 진행하고, 컨텍스트에 '관련 뉴스 없음'으로 표시된다.
     """
     if state["news_mode"] == "keyword":
-        news = fetch_news(state["corp_name"], " ".join(state["keywords"]), display=20, sort="sim")
-        news = filter_news_by_date(news, days=90, num=10)
+        news = fetch_news(
+            state["corp_name"], " ".join(state["keywords"]),
+            display=NEWS_DISPLAY, sort=NEWS_SORT_KEYWORD,
+        )
+        news = filter_news_by_date(news)
         if news:
             return {"news": news, "news_mode": "keyword"}
 
-    news = fetch_news(state["corp_name"], "", display=20, sort="date")
-    news = filter_news_by_date(news, days=90, num=10)
+    news = fetch_news(state["corp_name"], "", display=NEWS_DISPLAY, sort=NEWS_SORT_TREND)
+    news = filter_news_by_date(news)
     return {"news": news, "news_mode": "trend"}
 
 

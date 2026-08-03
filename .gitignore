@@ -12,3 +12,5 @@ chroma_db/
 tests/
 docs/
 !docs/DEVLOG.md
+evaluation/fixtures/
+evaluation/chroma_eval/

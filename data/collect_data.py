@@ -27,6 +27,13 @@ from data.corp_code import find_corp_code
 DART_LIST_URL = "https://opendart.fss.or.kr/api/list.json"
 NAVER_NEWS_URL = "https://naverapihub.apigw.ntruss.com/search/v1/news"
 
+# 뉴스 수집 조건.
+NEWS_DISPLAY = 20
+NEWS_FILTER_DAYS = 180
+NEWS_FILTER_NUM = 10
+NEWS_SORT_KEYWORD = "sim"   # A 경로: 회사명+키워드, 유사도순
+NEWS_SORT_TREND = "date"    # B 경로: 회사명만, 최신순
+
 
 def _fetch_disclosure_list(params: dict, pblntf_ty: str) -> list[dict]:
     """
@@ -35,22 +42,21 @@ def _fetch_disclosure_list(params: dict, pblntf_ty: str) -> list[dict]:
     """
     response = session.get(DART_LIST_URL, params={**params, "pblntf_ty": pblntf_ty}, timeout=30)
     response.raise_for_status()
-    data = response.json()
+    res = response.json()
 
-    status = data.get("status")
+    status = res.get("status")
     if status == "013": # 조회된 데이터가 없는 경우
         return []
     if status != "000": # 정상이 아닌 경우
-        raise RuntimeError(f"DART 오류 status={status}, message={data.get('message')}")
+        raise RuntimeError(f"DART 오류 status={status}, message={res.get('message')}")
 
-    return data.get("list", [])
+    return res.get("list", [])
 
 
 def fetch_disclosures(corp_code: str, days: int = 730, page_count: int = 10) -> list[dict]:
     """
     회사 고유 코드를 입력받아 공시 정보를 반환한다.
     현재는 최신 사업보고서 1개, 정기보고서 1개, 주요사항보고서(존재하면) 1개를 반환한다.
-    하지만 보고서에서 중요한 표에 관련된 내용을 제거하고 수집하기 때문에 후에 개선해야한다.
     """
     end = datetime.today()
     bgn = end - timedelta(days=days)
@@ -82,7 +88,10 @@ def fetch_disclosures(corp_code: str, days: int = 730, page_count: int = 10) -> 
     # 최신 주요사항보고서 정보 가져오기 (주요사항보고서 1개, 없으면 생략)
     major = _fetch_disclosure_list(params, pblntf_ty="B")
     if major:
-        results.append(major[0])
+        for item in major:
+            if "첨부정정" not in item.get("report_nm"):
+                results.append(item)
+                break
 
     return [
         {
@@ -103,7 +112,7 @@ def clean_text(text: str) -> str:
     return html.unescape(text) # &lt나 &amp처럼 HTML 엔티티로 변환된 문자열을 < 및 & 같은 원래의 특수문자로 되돌림
 
 
-def filter_news_by_date(news: list[dict], days: int = 90, num: int = 5) -> list[dict]:
+def filter_news_by_date(news: list[dict], days: int = NEWS_FILTER_DAYS, num: int = NEWS_FILTER_NUM) -> list[dict]:
     """
     pubDate가 최근 days일 이내인 뉴스만 남긴다.
     네이버 API에는 날짜순이나 유사도순 중 하나로만 정렬할 수 있어서 직접 필터링한다.
@@ -170,7 +179,7 @@ def research(corp_name: str, query: str) -> dict:
     # 공시정보와 뉴스 가져오기
     disclosures = fetch_disclosures(corp["corp_code"])
     news = fetch_news(corp_name=corp_name, query=query, display=30, sort="sim")
-    filtered_news = filter_news_by_date(news=news, days=90, num=10)
+    filtered_news = filter_news_by_date(news=news)
 
     # 공시정보나 뉴스 없으면 에러 발생
     if not disclosures:
@@ -187,6 +196,12 @@ def research(corp_name: str, query: str) -> dict:
         "news": filtered_news
     }
 
+# if __name__ == "__main__":
+#     from data.config import check_keys
+#     check_keys()
+#     corp = find_corp_code("에스티팜")
+#     for r in fetch_disclosures(corp["corp_code"]):
+#         print(r)
 
 # if __name__ == "__main__":
 #     result = research("삼성전자")
