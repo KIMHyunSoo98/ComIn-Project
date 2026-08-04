@@ -31,7 +31,7 @@ from langchain_rag.vectorstore import (
     check_disclosure_in_db,
     search_disclosure,
 )
-from langchain_rag.chain import build_context, build_report_chain, build_followup_chain
+from langchain_rag.chain import build_context, build_report_chain, build_followup_chain, render_sources
 from langchain_core.messages import HumanMessage, AIMessage
 from langgraph_rag.state import ResearchState
 from langgraph_rag.query_analysis import extract_keywords
@@ -42,6 +42,8 @@ MAX_PAID_CALLS_PER_RUN = 1
 
 # 검색 시도 상한 (첫 검색 1회 + 키워드 재검색 1회)
 MAX_RETRIEVE_ATTEMPTS = 2
+
+RETRIEVE_K = 3
 
 
 def resolve_corp(state: ResearchState) -> dict:
@@ -138,7 +140,7 @@ def retrieve(state: ResearchState) -> dict:
     전부 미달이면 빈 리스트를 반환하고, 다음 갈래(키워드 재검색 / 뉴스만 생성)는 그래프의 조건부 엣지가 정한다.
     """
     vectorstore = get_vectorstore()
-    results = search_disclosure(vectorstore, state["search_query"], state["corp_code"], k=3)
+    results = search_disclosure(vectorstore, state["search_query"], state["corp_code"], k=RETRIEVE_K)
     kept = [(doc, score) for doc, score in results if score >= RELEVANCE_THRESHOLD]
     return {"kept_chunks": kept, "retrieve_attempts": state["retrieve_attempts"] + 1}
 
@@ -165,15 +167,25 @@ def generate(state: ResearchState) -> dict:
             f"(현재 {state['paid_call_count']}회)"
         )
 
+    # 지금은 첫 턴만 리포트, 후속 턴은 대화다.
+    # 후속 질문의 의도(리포트냐 대화냐)를 판별하는 노드가 붙으면 이 한 줄만 state 값으로 바꾼다.
+    as_report = not state.get("messages")
+
     context = build_context(state["kept_chunks"], state["news"])
-    chain = build_followup_chain() if state.get("messages") else build_report_chain()
+    chain = build_report_chain() if as_report else build_followup_chain()
     report = chain.invoke(
         {"corp_name": state["corp_name"], "question": state["question"], "context": context, "history": state.get("messages", [])}
     )
 
+    # 출처는 LLM이 아니라 코드가 붙인다. 대화 히스토리에는 본문만 남겨 후속 턴 토큰을 아낀다.
+    # 대화형 답변에는 붙이지 않는다 - 후속 턴은 첫 턴의 공시·뉴스를 재사용해 출처가 대부분 중복이다.
+    sources = render_sources(
+        report, state["kept_chunks"], state["news"], state.get("disclosures")
+    ) if as_report else ""
+
     return {
         "context": context,
-        "report": report,
+        "report": report + sources,
         "paid_call_count": state["paid_call_count"] + 1,
         "messages": [HumanMessage(content=state["question"]), AIMessage(content=report)]
     }
