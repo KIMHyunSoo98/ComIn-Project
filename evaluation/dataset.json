@@ -6,18 +6,38 @@
     "rules": [
       "질문을 추가/수정하면 v2가 되고, v1 점수와는 비교하지 않는다.",
       "category=table_only은 '표에만 있을 것'이라는 가설이다. 베이스라인에서 답이 나오면 financial_mixed로 재분류한다.",
-      "answer_doc(recept_no)은 픽스처 생성 후 사람이 채운다. recall@k 계산용 라벨이다."
+      "C1(표 파싱) 실험의 회귀 대조군은 narrative다. financial_mixed는 재무 수치가 표에도 있어 함께 움직일 수 있다.",
+      "문서 단위 recall은 폐기했다. 회사당 공시가 2~3건뿐이고 corp_code 필터가 걸려 있어 항상 1.0이 나온다(Q12처럼 문서는 맞고 내용이 틀린 실패를 못 잡는다).",
+      "table_evidence는 '전체 문서에는 있고 서술형 텍스트에는 0회'인 문자열만 쓴다. 검색된 [공시 발췌]에 등장하면 표 내용이 컨텍스트에 들어왔다는 뜻이고, 다른 해석의 여지가 없다.",
+      "흔한 단어(위험, 영업이익, 수출 등)는 hit이 보장돼 지표가 되지 않는다. 라벨을 늘리려면 서술형 0회를 먼저 확인한다."
     ],
     "corps": {
-      "삼성전자": { "corp_code": "00126380", "성격": "초대형·뉴스 과다" },
-      "고려아연": { "corp_code": "00102858", "성격": "대형·이슈 많음" },
-      "한샘": { "corp_code": "00161693", "성격": "중견 소비재" },
-      "매일유업": { "corp_code": "01234507", "성격": "중견 식품" },
-      "리노공업": { "corp_code": "00369657", "성격": "중소형·공시 2건(주요사항보고서 없음)" },
-      "에스티팜": { "corp_code": "00871833", "성격": "중소형 바이오" }
+      "삼성전자": {
+        "corp_code": "00126380",
+        "성격": "초대형·뉴스 과다"
+      },
+      "고려아연": {
+        "corp_code": "00102858",
+        "성격": "대형·이슈 많음"
+      },
+      "한샘": {
+        "corp_code": "00161693",
+        "성격": "중견 소비재"
+      },
+      "매일유업": {
+        "corp_code": "01234507",
+        "성격": "중견 식품"
+      },
+      "리노공업": {
+        "corp_code": "00369657",
+        "성격": "중소형·공시 2건(주요사항보고서 없음)"
+      },
+      "에스티팜": {
+        "corp_code": "00871833",
+        "성격": "중소형 바이오"
+      }
     }
   },
-
   "items": [
     {
       "id": "Q01",
@@ -26,8 +46,11 @@
       "category": "table_only",
       "expects_answer": true,
       "answer_source_hint": "사업보고서 「임원의 보수 등」 표",
-      "answer_doc": null,
-      "note": "사용자 사전 확인: 현재 파이프라인에서 답변 실패. 표 파싱 실험의 대표 문항."
+      "note": "사용자 사전 확인: 현재 파이프라인에서 답변 실패. 표 파싱 실험의 대표 문항.",
+      "table_evidence": [
+        "1인당 평균보수",
+        "보수총액"
+      ]
     },
     {
       "id": "Q02",
@@ -36,7 +59,6 @@
       "category": "table_only",
       "expects_answer": true,
       "answer_source_hint": "사업보고서 「주식의 소유현황」 표",
-      "answer_doc": null,
       "note": "지분율은 뉴스에도 언급될 수 있어 오염 가능. 베이스라인 근거 출처(발췌/뉴스)를 확인할 것."
     },
     {
@@ -46,8 +68,11 @@
       "category": "table_only",
       "expects_answer": true,
       "answer_source_hint": "사업보고서 「직원 등의 현황」 표",
-      "answer_doc": null,
-      "note": "뉴스가 거의 다루지 않는 항목."
+      "note": "뉴스가 거의 다루지 않는 항목.",
+      "table_evidence": [
+        "1인평균",
+        "연간급여 총액"
+      ]
     },
     {
       "id": "Q04",
@@ -56,18 +81,20 @@
       "category": "table_only",
       "expects_answer": true,
       "answer_source_hint": "사업보고서 「배당에 관한 사항」 표",
-      "answer_doc": null,
-      "note": null
+      "note": null,
+      "table_evidence": [
+        "배당성향",
+        "주당 현금배당금"
+      ]
     },
     {
       "id": "Q05",
       "corp_name": "리노공업",
       "question": "연구개발비가 매출액 대비 몇 퍼센트야?",
-      "category": "table_only",
+      "category": "financial_mixed",
       "expects_answer": true,
-      "answer_source_hint": "사업보고서 「연구개발비용」 표",
-      "answer_doc": null,
-      "note": "비율은 서술 문단에 병기되는 경우가 있어 베이스라인에서 부분 성공 가능."
+      "answer_source_hint": "사업보고서 「연구개발비용」 표 + 뉴스",
+      "note": "베이스라인 v1(3패스)에서 table_only -> financial_mixed 재분류. 뉴스가 3.6%를 보도해 답변이 성공했다(발췌 인용 2/2/0, 뉴스 3/4/6). 비율 자체는 공시 표에 있으므로 C1 이후 발췌 비중이 오르는지로 효과를 본다."
     },
     {
       "id": "Q06",
@@ -76,10 +103,11 @@
       "category": "table_only",
       "expects_answer": true,
       "answer_source_hint": "사업보고서 「이사회 운영현황」 표",
-      "answer_doc": null,
-      "note": null
+      "note": null,
+      "table_evidence": [
+        "출석률"
+      ]
     },
-
     {
       "id": "Q07",
       "corp_name": "삼성전자",
@@ -87,8 +115,7 @@
       "category": "financial_mixed",
       "expects_answer": true,
       "answer_source_hint": "사업보고서 서술 + 실적 뉴스",
-      "answer_doc": null,
-      "note": "사용자 사전 확인: 현재도 답변 성공. 뉴스 우회가 가능한 대조군."
+      "note": "사전 확인(2026-08-03): 현재도 답변 성공하며 근거는 뉴스가 아니라 공시 발췌였다. 재무 수치는 표에도 있어 C1 이후 함께 움직일 수 있다 - 순수 대조군이 아니다."
     },
     {
       "id": "Q08",
@@ -97,8 +124,10 @@
       "category": "financial_mixed",
       "expects_answer": true,
       "answer_source_hint": "사업보고서 서술 + 뉴스",
-      "answer_doc": null,
-      "note": "사용자 사전 확인: 현재도 답변 성공. 대조군."
+      "note": "사전 확인(2026-08-03): 현재도 답변 성공하며 근거는 공시 발췌였다. Q07과 같은 이유로 순수 대조군이 아니다.",
+      "table_evidence": [
+        "부채비율"
+      ]
     },
     {
       "id": "Q09",
@@ -107,10 +136,8 @@
       "category": "financial_mixed",
       "expects_answer": true,
       "answer_source_hint": "사업보고서 서술 + 뉴스",
-      "answer_doc": null,
       "note": null
     },
-
     {
       "id": "Q10",
       "corp_name": "리노공업",
@@ -118,7 +145,6 @@
       "category": "narrative",
       "expects_answer": true,
       "answer_source_hint": "사업보고서 「사업의 개요」",
-      "answer_doc": null,
       "note": "회귀 방지용. 표 파싱 후에도 이 점수가 떨어지면 컨텍스트 노이즈 증가 신호."
     },
     {
@@ -128,7 +154,6 @@
       "category": "narrative",
       "expects_answer": true,
       "answer_source_hint": "사업보고서 「사업의 개요」",
-      "answer_doc": null,
       "note": null
     },
     {
@@ -138,7 +163,6 @@
       "category": "narrative",
       "expects_answer": true,
       "answer_source_hint": "사업보고서 「사업의 개요」",
-      "answer_doc": null,
       "note": null
     },
     {
@@ -148,10 +172,8 @@
       "category": "narrative",
       "expects_answer": true,
       "answer_source_hint": "사업보고서 서술",
-      "answer_doc": null,
       "note": null
     },
-
     {
       "id": "Q21",
       "corp_name": "한샘",
@@ -159,10 +181,8 @@
       "category": "narrative",
       "expects_answer": true,
       "answer_source_hint": "사업보고서 「사업의 개요」",
-      "answer_doc": null,
       "note": "한샘 문항 수 균형용으로 추가(2 -> 3). narrative는 회귀 감지용이라 문항이 많을수록 신호가 안정적이다."
     },
-
     {
       "id": "Q14",
       "corp_name": "삼성전자",
@@ -170,7 +190,6 @@
       "category": "risk",
       "expects_answer": true,
       "answer_source_hint": "사업보고서 「사업위험」 + 뉴스",
-      "answer_doc": null,
       "note": "README 예시 질문. 대표 시나리오."
     },
     {
@@ -180,10 +199,8 @@
       "category": "risk",
       "expects_answer": true,
       "answer_source_hint": "사업보고서 「사업위험」",
-      "answer_doc": null,
       "note": null
     },
-
     {
       "id": "Q16",
       "corp_name": "고려아연",
@@ -191,7 +208,6 @@
       "category": "news_dependent",
       "expects_answer": true,
       "answer_source_hint": "뉴스",
-      "answer_doc": null,
       "recall_applicable": false,
       "note": "공시보다 뉴스 근거가 주가 되는 문항. 뉴스 인용 비중 확인용."
     },
@@ -202,11 +218,9 @@
       "category": "news_dependent",
       "expects_answer": true,
       "answer_source_hint": "뉴스",
-      "answer_doc": null,
       "recall_applicable": false,
       "note": null
     },
-
     {
       "id": "Q18",
       "corp_name": "리노공업",
@@ -214,7 +228,6 @@
       "category": "unanswerable",
       "expects_answer": false,
       "answer_source_hint": null,
-      "answer_doc": null,
       "recall_applicable": false,
       "note": "공시 항목이 아니다. '주어진 자료로는 확인할 수 없음'이 정답."
     },
@@ -225,11 +238,9 @@
       "category": "unanswerable",
       "expects_answer": false,
       "answer_source_hint": null,
-      "answer_doc": null,
       "recall_applicable": false,
       "note": "장기 목표치는 공시 대상이 아니다. 환각 유도 문항."
     },
-
     {
       "id": "Q20",
       "corp_name": "삼송전자",
@@ -237,12 +248,10 @@
       "category": "resolve_fail",
       "expects_answer": false,
       "answer_source_hint": null,
-      "answer_doc": null,
       "recall_applicable": false,
       "note": "오타. 퍼지매칭 후보 제시 후 종료되어야 한다. 유료 호출 0회."
     }
   ],
-
   "multiturn": [
     {
       "id": "M01",

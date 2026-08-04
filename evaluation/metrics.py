@@ -20,6 +20,9 @@ _CITATION_TOKEN = re.compile(r"(발췌|뉴스)|(\d+)")
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n+")
 _LIST_MARKER = re.compile(r"^\s*(?:[-*+]|\d+\.)\s*")
 
+# 출처 섹션 제목. "## 출처", "**출처**", "출처:" 형태를 잡는다.
+_SOURCE_HEADING = re.compile(r"^[ \t]*(?:#+[ \t]*|\*\*)?출처\b", re.MULTILINE)
+
 # 자료 부족을 밝히는 표현. 프롬프트가 지시한 문구와 그 변형을 함께 본다.
 _ABSTAIN_PATTERNS = ("확인할 수 없", "확인이 불가", "확인되지 않", "알 수 없")
 
@@ -54,9 +57,46 @@ def split_sentences(report: str) -> list[str]:
     return sentences
 
 
-def is_abstained(report: str) -> bool:
-    """자료가 없어 답할 수 없다고 밝혔는지 확인한다."""
-    return any(pattern in report for pattern in _ABSTAIN_PATTERNS)
+def report_body(report: str) -> str:
+    """
+    출처 섹션을 잘라내고 본문(답 / 근거 / 한계)만 남긴다.
+
+    출처 목록은 인용 메타데이터를 나열할 뿐이라 문장으로 세면 citation_coverage 분모만 부푼다.
+    출처 섹션이 없던 v1 리포트는 원문 그대로 반환되므로 과거 실행과 비교 가능성이 유지된다.
+    """
+    match = _SOURCE_HEADING.search(report)
+    # 자를 때만 뒤 공백을 턴다. 출처가 없는 리포트는 원문 그대로여야 v1 지표가 흔들리지 않는다.
+    return report[: match.start()].rstrip() if match else report
+
+
+def excerpt_section(context: str) -> str:
+    """
+    컨텍스트에서 [공시 발췌] 부분만 잘라낸다.
+    뉴스에 우연히 같은 단어가 있으면 검색 품질을 실제보다 좋게 보이게 하므로 분리한다.
+    (베이스라인에서 '배당성향'이 뉴스에만 있었는데 검색 성공으로 잡히던 문제)
+    """
+    return context.split("[최근 뉴스]")[0]
+
+
+def has_abstain_phrase(text: str) -> bool:
+    """자료 부족을 밝히는 표현이 들어 있는지 확인한다."""
+    return any(pattern in text for pattern in _ABSTAIN_PATTERNS)
+
+
+def classify_abstention(report: str) -> str:
+    """
+    회피를 세 상태로 나눈다.
+
+    프롬프트가 "질문에 대한 답을 먼저 제시하라"고 지시하므로, 첫 문장에 회피 표현이 오면
+    답 자체를 못 한 것("full")이고, 뒤쪽에만 나오면 답은 하고 한계를 밝힌 것("caveat")이다.
+    베이스라인 v1의 리포트 18건을 보고 정한 규칙이라 완벽하지 않지만,
+    모든 실험에 같은 규칙을 적용하므로 비교 가능성은 유지된다.
+    """
+    if not has_abstain_phrase(report):
+        return "none"
+    sentences = split_sentences(report)
+    first = sentences[0] if sentences else ""
+    return "full" if has_abstain_phrase(first) else "caveat"
 
 
 def evaluate_item(item: dict, state: dict) -> dict:
@@ -65,6 +105,7 @@ def evaluate_item(item: dict, state: dict) -> dict:
     회사명이 해석되지 않아 리포트가 없으면 후보 반환 여부만 본다.
     """
     report = state.get("report") or ""
+    body = report_body(report)
     kept_chunks = state.get("kept_chunks") or []
     news = state.get("news") or []
 
@@ -78,7 +119,7 @@ def evaluate_item(item: dict, state: dict) -> dict:
         "news_count": len(news),
         "kept_chunks": len(kept_chunks),
         "retrieve_attempts": state.get("retrieve_attempts", 0),
-        "report_chars": len(report),
+        "report_chars": len(body),
     }
 
     if not report:
@@ -86,14 +127,14 @@ def evaluate_item(item: dict, state: dict) -> dict:
         result["resolve_ok"] = result["candidates"] > 0 if not item["expects_answer"] else False
         return result
 
-    citations = parse_citations(report)
+    citations = parse_citations(body)
     excerpt_cites = [n for label, n in citations if label == "발췌"]
     news_cites = [n for label, n in citations if label == "뉴스"]
 
     valid = sum(1 for n in excerpt_cites if 1 <= n <= len(kept_chunks))
     valid += sum(1 for n in news_cites if 1 <= n <= len(news))
 
-    sentences = split_sentences(report)
+    sentences = split_sentences(body)
     cited_sentences = sum(1 for s in sentences if _CITATION_BLOCK.search(s))
 
     result.update({
@@ -106,15 +147,17 @@ def evaluate_item(item: dict, state: dict) -> dict:
         "context_used_news": len({n for n in news_cites if 1 <= n <= len(news)}),
         "sentences": len(sentences),
         "cited_sentences": cited_sentences,
-        "abstained": is_abstained(report),
+        "abstention": classify_abstention(body),
     })
+    result["abstained"] = result["abstention"] == "full"
     # 답이 있어야 하는 문항은 회피하지 않아야, 없는 문항은 회피해야 정답이다.
     result["abstain_ok"] = result["abstained"] != item["expects_answer"]
 
-    answer_doc = item.get("answer_doc")
-    if answer_doc and item.get("recall_applicable", True):
-        found = any(doc.metadata.get("rcept_no") == answer_doc for doc, _ in kept_chunks)
-        result["recall_hit"] = found
+    # 표에만 있는 근거 문자열이 검색된 발췌에 들어왔는지. 라벨이 있는 문항에서만 계산한다.
+    table_evidence = item.get("table_evidence")
+    if table_evidence:
+        excerpts = excerpt_section(state.get("context") or "")
+        result["table_evidence_hit"] = any(term in excerpts for term in table_evidence)
 
     return result
 
@@ -126,7 +169,7 @@ def _rate(numerator: int, denominator: int) -> float | None:
 def _summarize(rows: list[dict]) -> dict:
     """문항 지표 리스트 하나를 요약한다."""
     reports = [r for r in rows if r["has_report"]]
-    recall_rows = [r for r in rows if "recall_hit" in r]
+    evidence_rows = [r for r in rows if "table_evidence_hit" in r]
 
     return {
         "items": len(rows),
@@ -153,12 +196,19 @@ def _summarize(rows: list[dict]) -> dict:
         ),
         "abstain_accuracy": _rate(sum(1 for r in reports if r.get("abstain_ok")), len(reports)),
         "abstain_rate": _rate(sum(1 for r in reports if r.get("abstained")), len(reports)),
+        # 답은 했지만 자료 한계를 덧붙인 비율. 회피와 구분해서 본다(정직한 한정은 나쁘지 않다).
+        "caveat_rate": _rate(
+            sum(1 for r in reports if r.get("abstention") == "caveat"), len(reports)
+        ),
         "news_fallback_rate": _rate(
             sum(1 for r in reports if r["news_mode"] == "trend"), len(reports)
         ),
         "retrieve_gap_rate": _rate(sum(1 for r in reports if r["kept_chunks"] == 0), len(reports)),
         "rewrite_rate": _rate(sum(1 for r in reports if r["retrieve_attempts"] > 1), len(reports)),
-        "recall": _rate(sum(1 for r in recall_rows if r["recall_hit"]), len(recall_rows)),
+        # 표에만 있는 근거가 검색 결과에 들어온 비율. LLM과 무관해 결정론적이다(노이즈 0).
+        "table_evidence_recall": _rate(
+            sum(1 for r in evidence_rows if r["table_evidence_hit"]), len(evidence_rows)
+        ),
         "avg_report_chars": round(sum(r["report_chars"] for r in reports) / len(reports)) if reports else None,
     }
 

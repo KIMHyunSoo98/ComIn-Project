@@ -37,10 +37,11 @@ def git_commit() -> dict:
     """결과가 어느 코드에서 나왔는지 못 박는다. 커밋되지 않은 변경이 있으면 dirty로 표시한다."""
     try:
         sha = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
-        dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip())
-        return {"commit": sha, "dirty": dirty}
+        changed = subprocess.check_output(["git", "status", "--porcelain"], text=True).strip()
+        files = [line[3:] for line in changed.splitlines()] if changed else []
+        return {"commit": sha, "dirty": bool(files), "dirty_files": files}
     except Exception:  # noqa: BLE001
-        return {"commit": None, "dirty": None}
+        return {"commit": None, "dirty": None, "dirty_files": []}
 
 
 def prompt_fingerprint() -> str | None:
