@@ -22,10 +22,12 @@ from data.collect_data import (
     fetch_news,
     filter_news_by_date,
 )
-from data.dart_origin_document import get_disclosure_text
+from data.dart_origin_document import get_disclosure_texts
 from langchain_rag.vectorstore import (
     RELEVANCE_THRESHOLD,
+    TABLE_RELEVANCE_THRESHOLD,
     get_vectorstore,
+    get_table_vectorstore,
     split_disclosure_text,
     store_disclosure,
     check_disclosure_in_db,
@@ -43,7 +45,8 @@ MAX_PAID_CALLS_PER_RUN = 1
 # 검색 시도 상한 (첫 검색 1회 + 키워드 재검색 1회)
 MAX_RETRIEVE_ATTEMPTS = 2
 
-RETRIEVE_K = 3
+RETRIEVE_K = 3  # 서술형 컬렉션 검색 개수
+TABLE_RETRIEVE_K = 5    # 표 컬렉션 검색 개수
 
 
 def resolve_corp(state: ResearchState) -> dict:
@@ -117,17 +120,21 @@ def index(state: ResearchState) -> dict:
     결과는 벡터 스토어에 저장되는 효과라 상태 변경은 없다.
     """
     vectorstore = get_vectorstore()
+    table_store = get_table_vectorstore()
     for dis in state["disclosures"]:
         rcept_no = dis.get("rcept_no")
-        if check_disclosure_in_db(vectorstore, rcept_no):
+        # 두 컬렉션에 같은 공시를 넣으므로 둘 다 있어야 적재를 건너뛴다.
+        if check_disclosure_in_db(vectorstore, rcept_no) and check_disclosure_in_db(table_store, rcept_no):
             continue
 
         # 개별 공시 원문 처리 실패(원문 다운로드/파싱 등)는 건너뛴다.
         # 한 건의 깨진 문서 때문에 리서치 전체가 죽지 않도록 격리한다.
         try:
-            text = get_disclosure_text(rcept_no)
-            documents = split_disclosure_text(text, rcept_no, state["corp_code"])
-            store_disclosure(vectorstore, documents)
+            narrative, tables = get_disclosure_texts(rcept_no)
+            for store, text in ((vectorstore, narrative), (table_store, tables)):
+                if not text or check_disclosure_in_db(store, rcept_no):
+                    continue
+                store_disclosure(store, split_disclosure_text(text, rcept_no, state["corp_code"]))
         except Exception:
             continue
 
@@ -139,10 +146,17 @@ def retrieve(state: ResearchState) -> dict:
     search_query로 해당 회사의 유사 청크를 검색하고 임계값 필터를 건다.
     전부 미달이면 빈 리스트를 반환하고, 다음 갈래(키워드 재검색 / 뉴스만 생성)는 그래프의 조건부 엣지가 정한다.
     """
-    vectorstore = get_vectorstore()
-    results = search_disclosure(vectorstore, state["search_query"], state["corp_code"], k=RETRIEVE_K)
-    kept = [(doc, score) for doc, score in results if score >= RELEVANCE_THRESHOLD]
-    return {"kept_chunks": kept, "retrieve_attempts": state["retrieve_attempts"] + 1}
+    def search(store, k, threshold):
+        results = search_disclosure(store, state["search_query"], state["corp_code"], k=k)
+        return [(doc, score) for doc, score in results if score >= threshold]
+
+    return {
+        "kept_chunks": search(get_vectorstore(), RETRIEVE_K, RELEVANCE_THRESHOLD),
+        "table_chunks": search(
+            get_table_vectorstore(), TABLE_RETRIEVE_K, TABLE_RELEVANCE_THRESHOLD
+        ),
+        "retrieve_attempts": state["retrieve_attempts"] + 1,
+    }
 
 
 def rewrite_query(state: ResearchState) -> dict:
@@ -171,7 +185,10 @@ def generate(state: ResearchState) -> dict:
     # 후속 질문의 의도(리포트냐 대화냐)를 판별하는 노드가 붙으면 이 한 줄만 state 값으로 바꾼다.
     as_report = not state.get("messages")
 
-    context = build_context(state["kept_chunks"], state["news"])
+    # 발췌 번호는 서술형 -> 표 순서로 하나로 이어진다. 출처 매핑도 같은 순서를 써야 어긋나지 않는다.
+    excerpts = list(state["kept_chunks"]) + list(state.get("table_chunks") or [])
+
+    context = build_context(state["kept_chunks"], state["news"], state.get("table_chunks"))
     chain = build_report_chain() if as_report else build_followup_chain()
     report = chain.invoke(
         {"corp_name": state["corp_name"], "question": state["question"], "context": context, "history": state.get("messages", [])}
@@ -180,7 +197,7 @@ def generate(state: ResearchState) -> dict:
     # 출처는 LLM이 아니라 코드가 붙인다. 대화 히스토리에는 본문만 남겨 후속 턴 토큰을 아낀다.
     # 대화형 답변에는 붙이지 않는다 - 후속 턴은 첫 턴의 공시·뉴스를 재사용해 출처가 대부분 중복이다.
     sources = render_sources(
-        report, state["kept_chunks"], state["news"], state.get("disclosures")
+        report, excerpts, state["news"], state.get("disclosures")
     ) if as_report else ""
 
     return {

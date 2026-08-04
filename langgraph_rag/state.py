@@ -34,7 +34,8 @@ class ResearchState(TypedDict):
     news: list[dict]
 
     # retrieve 노드 결과
-    kept_chunks: list[tuple[Document, float]]
+    kept_chunks: list[tuple[Document, float]]  # 서술형 컬렉션. 재검색 분기는 이 값으로 판단한다
+    table_chunks: list[tuple[Document, float]]  # 표 컬렉션. 컨텍스트에는 서술형 뒤에 이어 붙는다
     retrieve_attempts: int  # 재검색 상한 제어용
 
     # generate 노드 결과

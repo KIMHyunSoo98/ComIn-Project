@@ -5,10 +5,10 @@ vanilla의 data/embedding.py와 data/chunking.py를 대체한다.
 임베딩 모델은 nlpai-lab/KURE-v1(한국어 검색 특화, 8192토큰, 1024차원)을 쓴다.
 Phase 2 초기에는 vanilla와 같은 ko-sroberta(128토큰)로 chroma_db를 재사용했으나,
 긴 문서/표 수용과 검색 품질을 위해 2026-07-16 KURE-v1로 교체하며 새 컬렉션에 재적재했다.
-(배경: docs/2026-07-16-embedding-model-change.md)
 
 get_embeddings() -> 임베딩 모델을 한 번만 로드해 재사용하는 함수
-get_vectorstore() -> Chroma 벡터 스토어를 가지고 오는 함수
+get_vectorstore() -> 서술형 Chroma 벡터 스토어를 가지고 오는 함수
+get_table_vectorstore() -> 표 전용 Chroma 벡터 스토어를 가지고 오는 함수
 split_disclosure_text() -> 공시 원본 텍스트를 Document 청크 리스트로 나누는 함수
 store_disclosure() -> 청크 Document들을 메타데이터와 함께 벡터 스토어에 저장하는 함수
 check_disclosure_in_db() -> 현재 공시보고서가 DB에 있는지 확인하는 함수
@@ -27,10 +27,16 @@ MODEL_NAME = "nlpai-lab/KURE-v1"
 CHROMA_PATH = "chroma_db"
 # 임베딩 차원이 768->1024로 바뀌어 기존 'disclosures' 컬렉션과 호환되지 않으므로 새 컬렉션을 쓴다.
 COLLECTION_NAME = "disclosures_kure_v1"
-RELEVANCE_THRESHOLD = 0.3  # 청크 반환 시 임계점. cosine 유사도 기준
+# 표는 별도 컬렉션에 넣는다.
+TABLE_COLLECTION_NAME = "disclosures_kure_v1_tables"
+RELEVANCE_THRESHOLD = 0.3  # 서술형 청크 반환 시 임계점. cosine 유사도 기준
+# 표 청크 임계점. 
+# 0.3은 양쪽 모두 100% 통과라 지금은 걸리지 않는다. 실제로 거르려면 0.45 이상이어야 한다.
+TABLE_RELEVANCE_THRESHOLD = 0.3
 
 _embeddings = None
 _vectorstore = None
+_table_vectorstore = None
 
 
 def get_embeddings():
@@ -67,6 +73,22 @@ def get_vectorstore():
             collection_metadata={"hnsw:space": "cosine"},
             )
     return _vectorstore
+
+
+def get_table_vectorstore():
+    """
+    표 전용 Chroma 컬렉션. 서술형과 같은 persist_directory를 쓰되 컬렉션만 분리한다.
+    """
+    global _table_vectorstore
+
+    if _table_vectorstore is None:
+        _table_vectorstore = Chroma(
+            collection_name=TABLE_COLLECTION_NAME,
+            embedding_function=get_embeddings(),
+            persist_directory=CHROMA_PATH,
+            collection_metadata={"hnsw:space": "cosine"},
+        )
+    return _table_vectorstore
 
 
 def split_disclosure_text(

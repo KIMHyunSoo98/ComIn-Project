@@ -33,17 +33,25 @@ _llm = None
 _call_count = 0
 
 
-def build_context(kept_chunks: list[tuple[Document, float]], news: list[dict]) -> str:
+def build_context(
+    kept_chunks: list[tuple[Document, float]],
+    news: list[dict],
+    table_chunks: list[tuple[Document, float]] | None = None,
+) -> str:
     """
     filter_disclosure_by_relevance()를 거친 공시 청크와 research()의 뉴스를 프롬프트용 문자열로 조립한다.
     공시 발췌와 뉴스를 섹션으로 구분해, LLM이 '공식 공시'와 '언론 보도'를 구분하게 한다.
     LLM 호출은 없다. 뉴스는 벡터 검색 대상이 아니므로 Document로 만들지 않고 dict 그대로 받는다.
+
+    표 청크는 서술형 뒤에 이어 붙이되 번호는 하나로 이어간다.
     """
+    excerpts = list(kept_chunks) + list(table_chunks or [])
+
     # [공시 발췌] 섹션 조립 (청크 + 유사도)
     disclosure_lines = ["[공시 발췌]"]
-    if not kept_chunks:
+    if not excerpts:
         disclosure_lines.append("\n(질문과 관련된 공시 발췌 없음)")
-    for i, (doc, sim) in enumerate(kept_chunks, start=1):
+    for i, (doc, sim) in enumerate(excerpts, start=1):
         rcept_no = doc.metadata.get("rcept_no")
         disclosure_lines.append(f"\n발췌 {i} (공시번호: {rcept_no}, 유사도: {sim:.3f}):\n{doc.page_content}")
 
