@@ -6,7 +6,7 @@ vanilla의 vanilla_rag/generate.py를 대체한다.
 
 build_context() -> 검색된 청크와 뉴스를 프롬프트용 문자열로 조립하는 함수 (LLM 호출 없음)
 render_sources() -> 리포트가 인용한 근거만 모아 출처 섹션을 만드는 함수 (LLM 호출 없음)
-get_llm() -> ChatAnthropic 인스턴스를 한 번만 만들어 재사용하는 함수
+get_llm() -> ChatOpenAI 인스턴스를 한 번만 만들어 재사용하는 함수
 get_prompt() -> 리포트 생성용 ChatPromptTemplate을 만드는 함수
 build_report_chain() -> context 조립부터 리포트 문자열까지 이어지는 LCEL 체인을 만드는 함수
 generate_report() -> 체인을 실행해 리포트를 생성하는 함수 (유료 API 1회)
@@ -18,13 +18,13 @@ from langchain_core.documents import Document
 from langchain_core.runnables import Runnable
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
-from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 
 
 load_dotenv()
 
-REPORT_MODEL = "claude-sonnet-5"  # 기본값
+REPORT_MODEL = "gpt-5.6-luna"  # 기본값
 MAX_TOKENS = 4096
 
 _llm = None
@@ -152,9 +152,9 @@ def get_llm() -> Runnable:
     global _llm
     
     if _llm is None:
-        if not os.getenv("ANTHROPIC_API_KEY"):
-            raise RuntimeError("ANTHROPIC_API_KEY가 없습니다. .env를 확인하세요")
-        _llm = ChatAnthropic(model_name=REPORT_MODEL, max_tokens=MAX_TOKENS)
+        if not os.getenv("OPENAI_API_KEY"):
+            raise RuntimeError("OPENAI_API_KEY가 없습니다. .env를 확인하세요")
+        _llm = ChatOpenAI(model=REPORT_MODEL, max_tokens=MAX_TOKENS)
     return _llm
 
 

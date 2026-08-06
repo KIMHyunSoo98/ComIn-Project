@@ -5,6 +5,7 @@ chromadb
 sentence-transformers
 langchain-core
 langchain-anthropic
+langchain-openai
 langchain-chroma
 langchain-huggingface
 langchain-text-splitters
