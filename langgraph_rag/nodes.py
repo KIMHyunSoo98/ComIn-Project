@@ -188,7 +188,10 @@ def generate(state: ResearchState) -> dict:
     # 발췌 번호는 서술형 -> 표 순서로 하나로 이어진다. 출처 매핑도 같은 순서를 써야 어긋나지 않는다.
     excerpts = list(state["kept_chunks"]) + list(state.get("table_chunks") or [])
 
-    context = build_context(state["kept_chunks"], state["news"], state.get("table_chunks"))
+    context = build_context(
+        state["kept_chunks"], state["news"], state.get("table_chunks"),
+        corp_name=state["corp_name"], disclosures=state.get("disclosures"),
+    )
     chain = build_report_chain() if as_report else build_followup_chain()
     report = chain.invoke(
         {"corp_name": state["corp_name"], "question": state["question"], "context": context, "history": state.get("messages", [])}

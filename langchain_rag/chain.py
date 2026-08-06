@@ -37,6 +37,8 @@ def build_context(
     kept_chunks: list[tuple[Document, float]],
     news: list[dict],
     table_chunks: list[tuple[Document, float]] | None = None,
+    corp_name: str = "",
+    disclosures: list[dict] | None = None,
 ) -> str:
     """
     filter_disclosure_by_relevance()를 거친 공시 청크와 research()의 뉴스를 프롬프트용 문자열로 조립한다.
@@ -44,8 +46,13 @@ def build_context(
     LLM 호출은 없다. 뉴스는 벡터 검색 대상이 아니므로 Document로 만들지 않고 dict 그대로 받는다.
 
     표 청크는 서술형 뒤에 이어 붙이되 번호는 하나로 이어간다.
+
+    발췌마다 회사명·보고서명을 한 줄 얹는다. 표를 행 단위로 펴면서 문서 헤더에 있던 회사명과
+    회계연도가 떨어져 나가, "8,302은 맞지만 이게 어느 회사 어느 기(期) 수치인지 발췌에 없다"는
+    상태가 됐다. 근거에 출처를 붙여 그 공백을 메운다.
     """
     excerpts = list(kept_chunks) + list(table_chunks or [])
+    report_names = {d.get("rcept_no"): d.get("report_nm") for d in disclosures or []}
 
     # [공시 발췌] 섹션 조립 (청크 + 유사도)
     disclosure_lines = ["[공시 발췌]"]
@@ -53,7 +60,10 @@ def build_context(
         disclosure_lines.append("\n(질문과 관련된 공시 발췌 없음)")
     for i, (doc, sim) in enumerate(excerpts, start=1):
         rcept_no = doc.metadata.get("rcept_no")
-        disclosure_lines.append(f"\n발췌 {i} (공시번호: {rcept_no}, 유사도: {sim:.3f}):\n{doc.page_content}")
+        # 머리말 괄호는 그대로 둔다(평가 쪽 파싱이 이 형태를 읽는다). 출처는 본문 첫 줄로 얹는다.
+        source = " · ".join(x for x in (corp_name, report_names.get(rcept_no)) if x)
+        body = f"{source}\n{doc.page_content}" if source else doc.page_content
+        disclosure_lines.append(f"\n발췌 {i} (공시번호: {rcept_no}, 유사도: {sim:.3f}):\n{body}")
 
     # [최근 뉴스] 섹션 조립 (제목 / 요약 / 링크 / 날짜)
     news_lines = ["[최근 뉴스]"]
@@ -137,8 +147,7 @@ def render_sources(
 
 def get_llm() -> Runnable:
     """
-    ChatAnthropic 인스턴스를 한 번만 만들어 재사용한다.
-    ANTHROPIC_API_KEY가 없으면 예외를 발생시킨다.
+    인스턴스를 한 번만 만들어 재사용한다.
     """
     global _llm
     

@@ -40,6 +40,7 @@ from evaluation.fixture_store import (
 # 운영 chroma_db와 분리한다. 파싱·청킹이 바뀌면 통째로 지우고 다시 만든다.
 CHROMA_EVAL_PATH = str(EVAL_DIR / "chroma_eval")
 EVAL_COLLECTION = "disclosures_eval"
+EVAL_TABLE_COLLECTION = "disclosures_eval_tables"
 
 STUB_REPORT = "무과금 검증용 스텁 리포트입니다. (발췌 1) (뉴스 1)"
 
@@ -47,6 +48,7 @@ _manifest = None
 _corp_by_code: dict[str, str] = {}
 _corp_by_rcept: dict[str, str] = {}
 _vectorstore = None
+_table_vectorstore = None
 
 
 def load_fixtures() -> dict:
@@ -110,7 +112,7 @@ def _fetch_document_zip(rcept_no: str) -> bytes:
 
 
 def get_eval_vectorstore():
-    """평가 전용 Chroma. 운영 chroma_db는 건드리지 않는다."""
+    """평가 전용 서술형 Chroma. 운영 chroma_db는 건드리지 않는다."""
     global _vectorstore
 
     if _vectorstore is None:
@@ -121,6 +123,20 @@ def get_eval_vectorstore():
             collection_metadata={"hnsw:space": "cosine"},
         )
     return _vectorstore
+
+
+def get_eval_table_vectorstore():
+    """평가 전용 표 Chroma."""
+    global _table_vectorstore
+
+    if _table_vectorstore is None:
+        _table_vectorstore = Chroma(
+            collection_name=EVAL_TABLE_COLLECTION,
+            embedding_function=get_embeddings(),
+            persist_directory=CHROMA_EVAL_PATH,
+            collection_metadata={"hnsw:space": "cosine"},
+        )
+    return _table_vectorstore
 
 
 class _StubChain:
@@ -141,6 +157,7 @@ def install_replay() -> None:
     nodes.fetch_news = _fetch_news
     nodes.filter_news_by_date = _filter_news_by_date
     nodes.get_vectorstore = get_eval_vectorstore
+    nodes.get_table_vectorstore = get_eval_table_vectorstore
 
 
 def install_stub_llm() -> None:
@@ -157,29 +174,38 @@ def build_eval_vectorstore(rebuild: bool = True) -> dict:
     청크 수가 달라져 id가 겹치지 않는 잔재가 남으므로 반드시 새로 만들어야 한다.
     질문마다 index 시간이 들쭉날쭉해지지 않도록 평가 전에 미리 채워둔다.
     """
-    global _vectorstore
+    global _vectorstore, _table_vectorstore
 
     manifest = load_fixtures()
     if rebuild:
         shutil.rmtree(CHROMA_EVAL_PATH, ignore_errors=True)
         _vectorstore = None
+        _table_vectorstore = None
 
     install_replay()
-    vectorstore = get_eval_vectorstore()
+    narrative_store = get_eval_vectorstore()
+    table_store = get_eval_table_vectorstore()
     stats = {}
 
     for corp_name, info in manifest["corps"].items():
-        chunk_count = 0
+        counts = {"서술형": 0, "표": 0}
         for dis in info["disclosures"]:
             rcept_no = dis["rcept_no"]
-            if check_disclosure_in_db(vectorstore, rcept_no):
-                continue
-            text = dart_document.get_disclosure_text(rcept_no)
-            documents = split_disclosure_text(text, rcept_no, info["corp_code"])
-            store_disclosure(vectorstore, documents)
-            chunk_count += len(documents)
-        stats[corp_name] = chunk_count
-        print(f"  {corp_name:6} 공시 {len(info['disclosures'])}건 -> 청크 {chunk_count}개")
+            narrative, tables = dart_document.get_disclosure_texts(rcept_no)
+            for store, text, key in (
+                (narrative_store, narrative, "서술형"),
+                (table_store, tables, "표"),
+            ):
+                if not text or check_disclosure_in_db(store, rcept_no):
+                    continue
+                documents = split_disclosure_text(text, rcept_no, info["corp_code"])
+                store_disclosure(store, documents)
+                counts[key] += len(documents)
+        stats[corp_name] = counts
+        print(
+            f"  {corp_name:6} 공시 {len(info['disclosures'])}건 -> "
+            f"서술형 {counts['서술형']}개 / 표 {counts['표']}개"
+        )
 
     return stats
 
@@ -187,4 +213,6 @@ def build_eval_vectorstore(rebuild: bool = True) -> dict:
 if __name__ == "__main__":
     print(f"평가 전용 벡터 스토어 재빌드: {CHROMA_EVAL_PATH}")
     stats = build_eval_vectorstore(rebuild=True)
-    print(f"\n완료: 총 청크 {sum(stats.values())}개")
+    narrative = sum(c["서술형"] for c in stats.values())
+    tables = sum(c["표"] for c in stats.values())
+    print(f"\n완료: 서술형 {narrative}개 / 표 {tables}개")

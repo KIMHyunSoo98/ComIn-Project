@@ -14,3 +14,6 @@ docs/
 !docs/DEVLOG.md
 evaluation/fixtures/
 evaluation/chroma_eval/
+evaluation/results/
+evaluation/*.csv
+.claude/

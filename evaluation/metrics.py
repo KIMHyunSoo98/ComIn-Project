@@ -106,7 +106,9 @@ def evaluate_item(item: dict, state: dict) -> dict:
     """
     report = state.get("report") or ""
     body = report_body(report)
-    kept_chunks = state.get("kept_chunks") or []
+    # 발췌 번호는 서술형 다음에 표가 이어지는 하나의 번호 체계다.
+    # 인용 유효 범위와 활용률 분모는 둘을 합친 수가 되어야 한다.
+    kept_chunks = list(state.get("kept_chunks") or []) + list(state.get("table_chunks") or [])
     news = state.get("news") or []
 
     result = {
@@ -117,7 +119,9 @@ def evaluate_item(item: dict, state: dict) -> dict:
         "candidates": len(state.get("corp_candidates") or []),
         "news_mode": state.get("news_mode"),
         "news_count": len(news),
-        "kept_chunks": len(kept_chunks),
+        "kept_chunks": len(state.get("kept_chunks") or []),
+        "table_chunks": len(state.get("table_chunks") or []),
+        "excerpts": len(kept_chunks),
         "retrieve_attempts": state.get("retrieve_attempts", 0),
         "report_chars": len(body),
     }
@@ -170,6 +174,8 @@ def _summarize(rows: list[dict]) -> dict:
     """문항 지표 리스트 하나를 요약한다."""
     reports = [r for r in rows if r["has_report"]]
     evidence_rows = [r for r in rows if "table_evidence_hit" in r]
+    # judge는 별도 실행(evaluation/judge.py)이라 없을 수 있다. 없으면 None으로 빠진다.
+    judged = [r["judge"] for r in reports if r.get("judge")]
 
     return {
         "items": len(rows),
@@ -184,10 +190,11 @@ def _summarize(rows: list[dict]) -> dict:
             sum(r.get("cited_sentences", 0) for r in reports),
             sum(r.get("sentences", 0) for r in reports),
         ),
-        # 제공한 발췌 중 실제 인용된 비율
+        # 제공한 발췌 중 실제 인용된 비율. 분모는 서술형 + 표를 합친 발췌 수다.
+        # ("excerpts"가 없는 과거 결과 파일은 kept_chunks가 곧 전체 발췌 수였다)
         "context_utilization": _rate(
             sum(r.get("context_used_excerpt", 0) for r in reports),
-            sum(r["kept_chunks"] for r in reports),
+            sum(r.get("excerpts", r["kept_chunks"]) for r in reports),
         ),
         # 전체 인용 중 공시 발췌 비중 (표 파싱 실험에서 올라가야 한다)
         "excerpt_citation_share": _rate(
@@ -203,11 +210,22 @@ def _summarize(rows: list[dict]) -> dict:
         "news_fallback_rate": _rate(
             sum(1 for r in reports if r["news_mode"] == "trend"), len(reports)
         ),
-        "retrieve_gap_rate": _rate(sum(1 for r in reports if r["kept_chunks"] == 0), len(reports)),
+        # 공시 근거가 하나도 없이 생성한 비율 (서술형·표 둘 다 빈 경우)
+        "retrieve_gap_rate": _rate(
+            sum(1 for r in reports if r.get("excerpts", r["kept_chunks"]) == 0), len(reports)
+        ),
         "rewrite_rate": _rate(sum(1 for r in reports if r["retrieve_attempts"] > 1), len(reports)),
         # 표에만 있는 근거가 검색 결과에 들어온 비율. LLM과 무관해 결정론적이다(노이즈 0).
         "table_evidence_recall": _rate(
             sum(1 for r in evidence_rows if r["table_evidence_hit"]), len(evidence_rows)
+        ),
+        # 인용한 근거가 실제로 그 문장을 뒷받침하는 비율. 정규식 지표가 못 재는 영역이다.
+        # citation_coverage는 "인용이 달렸는가"만 보므로 아무 데나 붙여도 만점이 나온다.
+        "judge_groundedness": _rate(
+            sum(j["supported"] for j in judged), sum(j["claims"] for j in judged)
+        ),
+        "judge_unsupported_rate": _rate(
+            sum(j["unsupported"] for j in judged), sum(j["claims"] for j in judged)
         ),
         "avg_report_chars": round(sum(r["report_chars"] for r in reports) / len(reports)) if reports else None,
     }

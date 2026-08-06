@@ -33,15 +33,23 @@ def rebuild_state(row: dict) -> dict:
     rcept_no는 컨텍스트 문자열에서 뽑는다(러너가 따로 저장하지 않아도 소급 계산이 된다).
     """
     rcept_nos = _RCEPT_NO.findall(row.get("context", ""))
-    chunks = []
-    for i in range(row["kept_chunks"]):
-        rcept_no = rcept_nos[i] if i < len(rcept_nos) else None
-        chunks.append((SimpleNamespace(metadata={"rcept_no": rcept_no}), 0.0))
+
+    def fake_chunks(start: int, count: int) -> list:
+        out = []
+        for i in range(start, start + count):
+            rcept_no = rcept_nos[i] if i < len(rcept_nos) else None
+            out.append((SimpleNamespace(metadata={"rcept_no": rcept_no}), 0.0))
+        return out
+
+    # 컨텍스트의 발췌 순서는 서술형 다음 표다. 그 순서대로 rcept_no를 나눠 가진다.
+    narrative_count = row["kept_chunks"]
+    table_count = row.get("table_chunks", 0)
 
     return {
         "report": row.get("report", ""),
         "context": row.get("context", ""),
-        "kept_chunks": chunks,
+        "kept_chunks": fake_chunks(0, narrative_count),
+        "table_chunks": fake_chunks(narrative_count, table_count),
         "news": [{}] * row["news_count"],
         "news_mode": row["news_mode"],
         "retrieve_attempts": row["retrieve_attempts"],
@@ -80,7 +88,8 @@ def recompute_file(path, dataset: dict, write: bool) -> tuple[dict, dict]:
         # 원자료와 실행 정보는 보존하고 파생 지표만 갈아끼운다.
         preserved = {
             key: row[key]
-            for key in ("question", "elapsed_sec", "nodes_run", "report", "context", "turn")
+            # judge는 유료 재실행 없이 보존해야 한다. 지우면 판정을 다시 사야 한다.
+            for key in ("question", "elapsed_sec", "nodes_run", "report", "context", "turn", "judge")
             if key in row
         }
         rows.append({**fresh, **preserved})
